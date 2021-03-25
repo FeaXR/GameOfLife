@@ -20,6 +20,12 @@ Basic controls:
 When started by clicking on the executable, it starts up with the basic initialization file (res/init/cells.init).
 Other initialization file can be used, when starting up from command prompt, using the arguments. E.g.: On windows, the command would look like this: gol.exe res\init\kokgalaxy.init
 
+There are 3 init files provided, the basic cells.init with a few oscillators and a glider, glidergun.init with the Gosper glider gun and kokgalaxy.init with Kok's galaxy.
+
+New init files can be added easily, by following the pattern for each cell: <x>; <y>\\Comment
+Put each individual cell to a different line!
+Don't leave empty lines in the file!
+
 Compiled Windows executable is available
 
 
