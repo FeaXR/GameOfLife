@@ -24,7 +24,7 @@ Compiled Windows executable is available
 
 
 # Screenshots
-![1](https://github.com/FeaXR/GameOfLife/blob/71c5c7fa3d22bca71b1db95a639d6b44d5ae7c84/Screenshots/screenshot1.png)
+![1](https://github.com/FeaXR/GameOfLife/blob/08725d86282e51c02f9dcd33223a0751b67c41c3/Screenshots/screenshot1.png)
 ![2](https://github.com/FeaXR/GameOfLife/blob/a0e1017c43467cb1279ed9dadc115b15f149bfe1/Screenshots/screenshot2.png)
-![3](https://github.com/FeaXR/GameOfLife/blob/a0e1017c43467cb1279ed9dadc115b15f149bfe1/Screenshots/screenshot3.png)
-![4](https://github.com/FeaXR/GameOfLife/blob/a0e1017c43467cb1279ed9dadc115b15f149bfe1/Screenshots/screenshot4.png)
+![3](https://github.com/FeaXR/GameOfLife/blob/08725d86282e51c02f9dcd33223a0751b67c41c3/Screenshots/screenshot3.png)
+![4](https://github.com/FeaXR/GameOfLife/blob/08725d86282e51c02f9dcd33223a0751b67c41c3/Screenshots/screenshot4.png)
