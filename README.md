@@ -23,5 +23,8 @@ Other initialization file can be used, when starting up from command prompt, usi
 Compiled Windows executable is available
 
 
-# ScreenShots
+# Screenshots
 ![1](https://github.com/FeaXR/GameOfLife/blob/71c5c7fa3d22bca71b1db95a639d6b44d5ae7c84/Screenshots/screemshot1.png)
+![2](https://github.com/FeaXR/GameOfLife/blob/71c5c7fa3d22bca71b1db95a639d6b44d5ae7c84/Screenshots/screemshot2.png)
+![3](https://github.com/FeaXR/GameOfLife/blob/71c5c7fa3d22bca71b1db95a639d6b44d5ae7c84/Screenshots/screemshot3.png)
+![4](https://github.com/FeaXR/GameOfLife/blob/71c5c7fa3d22bca71b1db95a639d6b44d5ae7c84/Screenshots/screemshot4.png)
