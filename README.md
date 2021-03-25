@@ -22,11 +22,11 @@ Other initialization file can be used, when starting up from command prompt, usi
 
 There are 3 init files provided, the basic cells.init with a few oscillators and a glider, glidergun.init with the Gosper glider gun and kokgalaxy.init with Kok's galaxy.
 
-New init files can be added easily, by following the pattern for each cell: {x}; {y}\\\\Comment<break>
-Put each individual cell to a different line!<break>
-Don't leave empty lines in the file!<break>
+New init files can be added easily, by following the pattern for each cell: {x}; {y}\\\\Comment<br>
+Put each individual cell to a different line!<br>
+Don't leave empty lines in the file!<br>
 
-Compiled Windows executable is available<break>
+Compiled Windows executable is available
 
 
 # Screenshots
