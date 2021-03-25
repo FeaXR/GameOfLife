@@ -24,4 +24,4 @@ Compiled Windows executable is available
 
 
 # ScreenShots
-![1](https://raw.githubusercontent.com/FeaXR/GameOfLife/master/Screenshots/screenshot1.png)
+![1](https://github.com/FeaXR/GameOfLife/blob/71c5c7fa3d22bca71b1db95a639d6b44d5ae7c84/Screenshots/screemshot1.png)
