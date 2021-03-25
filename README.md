@@ -1,4 +1,4 @@
-# GameOf Life In C using OpenGL
+# Game Of Life In C using OpenGL
 
 
 This project uses basic C libraries and OpenGL to simulate Conway's game of life on a 18,446,744,073,709,551,615 * 18,446,744,073,709,551,615 grid.
