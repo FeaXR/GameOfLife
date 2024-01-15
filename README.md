@@ -26,8 +26,6 @@ New init files can be added easily, by following the pattern for each cell: {x};
 Put each individual cell in a different line!<br>
 Don't leave empty lines in the file!<br>
 
-[Compiled Windows executable is available](https://github.com/FeaXR/GameOfLife/blob/ad71d4cfaaa72644871f7be9d90dad9085275449/gol.exe)
-
 
 # Screenshots
 ![1](https://github.com/FeaXR/GameOfLife/blob/08725d86282e51c02f9dcd33223a0751b67c41c3/Screenshots/screenshot1.png)
