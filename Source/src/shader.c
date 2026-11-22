@@ -62,7 +62,7 @@ ShaderProgramSource ParseShader(const char* filePath)
 			continue;
 		}
 
-		tmp = strlen(readBuffer[type]) + strlen(line);
+		tmp = (int)(strlen(readBuffer[type]) + strlen(line));
 
 		if ((new_str = malloc(tmp + 1)) != NULL)
 		{

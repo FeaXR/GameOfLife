@@ -67,8 +67,10 @@ add_executable(gol
 target_include_directories(gol PRIVATE
   "${nuklear_SOURCE_DIR}"
   "${nuklear_SOURCE_DIR}/demo/glfw_opengl3")
-if(NOT MSVC)
-  # Third-party header implementation, don't drown our warnings in its own
+# Third-party header implementation, don't drown our warnings in its own
+if(MSVC)
+  set_source_files_properties(Source/src/ui.c PROPERTIES COMPILE_OPTIONS "/wd4116;/wd5287;/wd4244;/wd4267")
+else()
   set_source_files_properties(Source/src/ui.c PROPERTIES COMPILE_OPTIONS "-Wno-unused-function;-Wno-unused-parameter;-Wno-unused-but-set-variable")
 endif()
 

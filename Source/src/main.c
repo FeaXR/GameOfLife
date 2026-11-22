@@ -10,13 +10,6 @@
 #include <crtdbg.h>
 #endif
 
-#include <GL/glew.h>
-#include <GLFW/glfw3.h>
-
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-
 #ifdef _WIN32
 #include <windows.h>
 #include <direct.h>
@@ -24,6 +17,13 @@
 #else
 #include <unistd.h>
 #endif
+
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
 
 #include "shader.h"
 #include "macros.h"
