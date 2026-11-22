@@ -12,7 +12,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
@@ -25,10 +25,10 @@ jobs:
         run: cmake --build build --config Release
 
       - name: Package
-        run: cmake --install build --config Release --prefix dist
+        run: cmake --install build --config Release --prefix dist --component gol
 
       # Uploading only fails when the account's artifact storage is full, which says nothing about the build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         continue-on-error: true
         with:
           name: gol-${{ runner.os }}

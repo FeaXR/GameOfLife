@@ -6,7 +6,7 @@ This project uses basic C libraries and OpenGL to simulate Conway's game of life
 
 ## Features
 
-- An effectively unlimited grid (64-bit coordinates) with a movable, zoomable camera
+- An effectively unlimited grid (64-bit coordinates) with a camera you can drag around and zoom
 - Click cells to flip them on or off, drag to draw
 - A library of predefined structures to place with the mouse: still lifes, oscillators, spaceships, glider guns, methuselahs and an infinitely growing pattern
 - A glowing halo around living cells, adjustable colors and an optional grid overlay
@@ -20,7 +20,7 @@ This project uses basic C libraries and OpenGL to simulate Conway's game of life
 | Pause / resume | Pause / Play | Space, Esc |
 | Advance one generation while paused | Step | Enter |
 | Slow down / speed up | Slower / Faster | Numpad - / Numpad + |
-| Move the camera | Arrow buttons (hold to keep moving) | Arrow keys |
+| Move the camera | Arrow buttons (hold to keep moving) | Arrow keys, drag with the middle mouse button |
 | Zoom out / in | - / + | - / =, mouse wheel (zooms around the cursor) |
 | Change the red, green or blue value | R / G / B | R / G / B |
 | Toggle the halo effect | Halo | H |
@@ -73,4 +73,4 @@ cmake -S . -B build-win -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-w64-x86_64.cmake
 cmake --build build-win
 ```
 
-The `res` folder is copied next to the executable on build; `cmake --install build --prefix dist` produces a folder ready to distribute.
+The `res` folder is copied next to the executable on build; `cmake --install build --prefix dist --component gol` produces a folder ready to distribute.

@@ -32,7 +32,8 @@ if(NOT TARGET glfw)
   set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
   set(GLFW_INSTALL        OFF CACHE BOOL "" FORCE)
   FetchContent_Declare(glfw
-    URL https://github.com/glfw/glfw/releases/download/3.4/glfw-3.4.zip)
+    URL https://github.com/glfw/glfw/releases/download/3.5.1/glfw-3.5.1.zip
+    URL_HASH SHA256=ea79bc5feffc254c87291980c2d0bce9acebb68c4983b79f961dcd2cb8a611a0)
   FetchContent_MakeAvailable(glfw)
 endif()
 
@@ -43,11 +44,9 @@ if(NOT TARGET GLEW::GLEW)
   set(glew-cmake_BUILD_STATIC ON  CACHE BOOL "" FORCE)
   set(ONLY_LIBS               ON  CACHE BOOL "" FORCE)
   FetchContent_Declare(glew
-    URL https://github.com/Perlmint/glew-cmake/archive/refs/tags/glew-cmake-2.2.0.tar.gz)
-  # glew-cmake declares a very old minimum CMake version which CMake 4 rejects
-  set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+    URL https://github.com/Perlmint/glew-cmake/archive/refs/tags/glew-cmake-2.3.1.tar.gz
+    URL_HASH SHA256=70c2ce0d96d0de1199e20306ad55fdd3eef291dd776af07c270b39545906f755)
   FetchContent_MakeAvailable(glew)
-  unset(CMAKE_POLICY_VERSION_MINIMUM)
   set(GOL_GLEW_FETCHED ON)
 endif()
 
@@ -104,5 +103,6 @@ add_custom_command(TARGET gol POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory
           "${CMAKE_CURRENT_SOURCE_DIR}/Source/res" "$<TARGET_FILE_DIR:gol>/res")
 
-install(TARGETS gol RUNTIME DESTINATION .)
-install(DIRECTORY Source/res DESTINATION .)
+# Install with --component gol: a fetched GLEW adds install rules for its own headers and libraries
+install(TARGETS gol RUNTIME DESTINATION . COMPONENT gol)
+install(DIRECTORY Source/res DESTINATION . COMPONENT gol)

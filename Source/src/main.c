@@ -75,6 +75,12 @@ static bool painting = false;
 static bool paintState = false;
 static long long lastPaintX, lastPaintY;
 
+//Panning the camera by dragging with the middle mouse button
+static bool panning = false;
+static double panLastX, panLastY; //Cursor position at the last pan update
+static double panRestX, panRestY; //Dragged distance not yet turned into whole cells, in window units
+static GLFWcursor* panCursor = NULL;
+
 //OpenGL objects and per zoom level data
 static struct
 {
@@ -728,6 +734,65 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	}
 }
 
+static void startPanning(void)
+{
+	glfwGetCursorPos(gfx.window, &panLastX, &panLastY);
+	panRestX = 0;
+	panRestY = 0;
+	panning = true;
+	glfwSetCursor(gfx.window, panCursor);
+}
+
+static void stopPanning(void)
+{
+	if (!panning)
+		return;
+	panning = false;
+	glfwSetCursor(gfx.window, NULL);
+}
+
+//Move a camera coordinate by a number of cells, without running off the edge of the world
+static long long shiftCamera(long long pos, long long by, int size)
+{
+	if (by > 0 && pos + size > LONGLONG_MAX - by)
+		return LONGLONG_MAX - size;
+	if (by < 0 && pos < LONGLONG_MIN - by)
+		return LONGLONG_MIN;
+	return pos + by;
+}
+
+//Move the camera so the world stays under the cursor while dragging with the middle button
+static void continuePanning(void)
+{
+	double mx, my;
+	long long cellsX, cellsY;
+
+	if (!panning)
+		return;
+
+	if (glfwGetMouseButton(gfx.window, GLFW_MOUSE_BUTTON_MIDDLE) != GLFW_PRESS)
+	{
+		stopPanning();
+		return;
+	}
+
+	glfwGetCursorPos(gfx.window, &mx, &my);
+	panRestX += mx - panLastX;
+	panRestY += my - panLastY;
+	panLastX = mx;
+	panLastY = my;
+
+	//Only whole cells, the rest is kept for the next frame (and survives zooming mid-drag)
+	cellsX = (long long)(panRestX / sqrSize);
+	cellsY = (long long)(panRestY / sqrSize);
+	panRestX -= (double)cellsX * sqrSize;
+	panRestY -= (double)cellsY * sqrSize;
+
+	//Dragging right shows what was to the left; window y points down, world y points up
+	camPosX = shiftCamera(camPosX, -cellsX, camSizeX);
+	camPosY = shiftCamera(camPosY, cellsY, camSizeY);
+}
+
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 {
 	long long x, y;
@@ -738,6 +803,8 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 	{
 		if (button == GLFW_MOUSE_BUTTON_LEFT)
 			painting = false;
+		if (button == GLFW_MOUSE_BUTTON_MIDDLE)
+			stopPanning();
 		return;
 	}
 
@@ -747,6 +814,13 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 	if (button == GLFW_MOUSE_BUTTON_RIGHT && placingPattern >= 0)
 	{
 		stopPlacing();
+		return;
+	}
+
+	if (button == GLFW_MOUSE_BUTTON_MIDDLE)
+	{
+		if (mouseCell(&x, &y))
+			startPanning();
 		return;
 	}
 
@@ -826,6 +900,7 @@ void drawToWindow(GLFWwindow* window)
 	//Build the toolbar first, button presses can change the board
 	uiFrame();
 	continuePainting();
+	continuePanning();
 
 	glfwGetWindowSize(window, &winWidth, &winHeight);
 	glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
@@ -930,6 +1005,7 @@ int main(int argc, char* argv[])
 		return -1;
 	}
 	uiInit(gfx.window);
+	panCursor = glfwCreateStandardCursor(GLFW_HAND_CURSOR);
 	//Replace the UI's callbacks, they get forwarded to it
 	glfwSetKeyCallback(gfx.window, key_callback);
 	glfwSetMouseButtonCallback(gfx.window, mouse_button_callback);
