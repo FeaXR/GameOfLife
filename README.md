@@ -2,7 +2,7 @@
 
 This project uses basic C libraries and OpenGL to simulate Conway's game of life on a 18,446,744,073,709,551,615 * 18,446,744,073,709,551,615 grid.
 
-It started out in 2021 as my project for a university class on C programming. Since then it has gained a CMake build for Linux and Windows, a toolbar, zooming, cell editing and a pattern library.
+It started out in 2021 as my project for a C programming class (course code KMVPG1TBNE) at [Óbuda University](https://uni-obuda.hu/), Kandó Kálmán Faculty of Electrical Engineering. Since then it has gained a CMake build for Linux and Windows, a toolbar, zooming, cell editing and a pattern library.
 
 ![A Gosper glider gun firing a stream of gliders, with a pulsar, Kok's galaxy, a pentadecathlon and a beacon](Screenshots/zoomed.png)
 
