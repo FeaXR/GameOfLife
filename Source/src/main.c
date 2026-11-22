@@ -15,6 +15,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -29,35 +30,82 @@
 #include "glExtensions.h"
 #include "gol.h"
 #include "controls.h"
+#include "patterns.h"
 #include "ui.h"
 
+//Size of the grid area in window units. Every zoom level divides both exactly
+#define GRID_WIDTH 1890
+#define GRID_HEIGHT 945
+
+//Cell sizes in window units, from zoomed out to zoomed in
+static const unsigned int zoomLevels[] = { 5, 7, 9, 15, 21, 27, 35, 45, 63 };
+#define ZOOM_LEVEL_COUNT ((int)(sizeof(zoomLevels) / sizeof(zoomLevels[0])))
+#define DEFAULT_ZOOM 4
+
 unsigned int timePerTick = 100;
-const unsigned int sqrSize = 21;
-const float gapSize = 1.0f;
+unsigned int sqrSize = 21; //Size of a cell in window units, depends on zoom
+int zoomLevel = DEFAULT_ZOOM;
 const float holeSize = 1.0f;
-const unsigned int xCount = camSizeX;
-const unsigned int yCount = camSizeY;
-const unsigned int scrollSpeed = 3;
 const float haloFactor = 0.2f;
 const float haloHaloFactor = 0.1f;
+const float gridBrightness = 0.07f;
+const float ghostBrightness = 0.8f;
 bool debug = false;
 bool gameLoop = true;
 bool showHalo = true;
+bool showGrid = false;
 double lastTick = 0.0; //Time of last game tick, in seconds (glfwGetTime)
 double lastFrame = 0.0; //Time of last frame, in seconds (glfwGetTime)
 cell* board;
-cell* tmpBoard;
+cell* tmpBoard; //Precomputed next generation, equal to board if not computed yet
 
 float red = 0.0f; //Variable of the color red
 float green = 1.0f; //Variable of the color green
 float blue = 0.0f; //Variable of the color blue
 
+//Pattern being placed with the mouse
+int placingPattern = -1;
+static int* ghostCells = NULL; //x, y pairs, y pointing up, relative to the bottom left
+static int ghostCount = 0;
+static int ghostWidth = 0;
+static int ghostHeight = 0;
+
+//Drawing cells by dragging the mouse
+static bool painting = false;
+static bool paintState = false;
+static long long lastPaintX, lastPaintY;
+
+//OpenGL objects and per zoom level data
+static struct
+{
+	GLFWwindow* window;
+	unsigned int vao;
+	unsigned int vbo; //Corners of every visible cell
+	unsigned int ibo; //Indices for whatever is being drawn
+	unsigned int gridIbo; //Indices for every visible cell, for the grid overlay
+	unsigned int gridIndexCount;
+	unsigned int shader;
+	int uColor, uHoleColor, uSqrSize, uGapSize, uHoleSize;
+	bool geometryDirty; //Zoom changed, the buffers need to be rebuilt
+
+	//One byte per visible cell
+	unsigned char* cellGrid;
+	unsigned char* haloGrid;
+	unsigned char* haloHaloGrid;
+} gfx;
+
+typedef struct
+{
+	unsigned int* data;
+	unsigned int count;
+	unsigned int capacity;
+} IndexList;
+
 int initWindow(GLFWwindow** window);
-float* generateVertexPositions();
-unsigned int* generateIndicesFromPositions(unsigned int* indexCount, positionOnScreen* p);
-unsigned int* generateHaloIndicesFromPositions(unsigned int* indexCount, positionOnScreen* p);
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
-void drawToWindow(GLFWwindow* window, unsigned int* buffer, unsigned int vao, unsigned int ibo, unsigned int shader, int u_ColorLocation, int u_holeColorLocation, int i_sqrSizeLocation, int f_gapSizeLocation, int f_holeSizeLocation, float* positions);
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
+void drawToWindow(GLFWwindow* window);
 int main(int argc, char* argv[]);
 
 //If res/ is not in the working directory, switch to the executable's directory
@@ -106,10 +154,10 @@ int initWindow(GLFWwindow** window)
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); //The grid has a fixed number of cells
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); //The grid has a fixed size
 
 	/* Create a windowed mode window and its OpenGL context */
-	*window = glfwCreateWindow(sqrSize * xCount, sqrSize * yCount + TOOLBAR_HEIGHT, "Game of Life", NULL, NULL);
+	*window = glfwCreateWindow(GRID_WIDTH, GRID_HEIGHT + TOOLBAR_HEIGHT, "Game of Life", NULL, NULL);
 
 	if (!(*window))
 	{
@@ -144,319 +192,355 @@ int initWindow(GLFWwindow** window)
 	return 0;
 }
 
-//Generate verticies
-float* generateVertexPositions()
+///Building the geometry
+
+static void pushIndex(IndexList* list, unsigned int index)
 {
-	float yPos = -1.0f;
-	float xPos = -1.0f;
-	float xDist = 2.0f / xCount;
-	float yDist = 2.0f / yCount;
-	unsigned int i, j;
-	float* positions;
-
-	positions = (float*)malloc((xCount + 1) * (yCount + 1) * sizeof(float) * 2);
-
-	for (i = 0; i <= yCount; i++)
+	if (list->count == list->capacity)
 	{
-		xPos = -1.0f;
+		list->capacity = list->capacity ? list->capacity * 2 : 1024;
+		list->data = (unsigned int*)realloc(list->data, list->capacity * sizeof(unsigned int));
+	}
+	list->data[list->count++] = index;
+}
 
-		for (j = 0; j <= xCount; j++)
+//Index of the vertex at the bottom left corner of the given screen cell
+static unsigned int vertexIndex(int x, int y)
+{
+	return (unsigned int)((camSizeX + 1) * y + x);
+}
+
+static void pushSquare(IndexList* list, int x, int y)
+{
+	//First triangle
+	pushIndex(list, vertexIndex(x, y));
+	pushIndex(list, vertexIndex(x + 1, y));
+	pushIndex(list, vertexIndex(x + 1, y + 1));
+	//Second triangle
+	pushIndex(list, vertexIndex(x, y));
+	pushIndex(list, vertexIndex(x, y + 1));
+	pushIndex(list, vertexIndex(x + 1, y + 1));
+}
+
+static void pushTriangle(IndexList* list, unsigned int a, unsigned int b, unsigned int c)
+{
+	pushIndex(list, a);
+	pushIndex(list, b);
+	pushIndex(list, c);
+}
+
+//Generate verticies for the corners of every visible cell
+static float* generateVertexPositions(void)
+{
+	int i, j;
+	float* positions = (float*)malloc((size_t)(camSizeX + 1) * (camSizeY + 1) * sizeof(float) * 2);
+
+	for (i = 0; i <= camSizeY; i++)
+	{
+		for (j = 0; j <= camSizeX; j++)
 		{
-			positions[((xCount + 1) * i + j) * 2] = xPos;
-			positions[((xCount + 1) * i + j) * 2 + 1] = yPos;
-
-			if (debug)
-			{
-				printf("%f, %f\n", xPos, yPos);
-			}
-			xPos += xDist;
+			positions[((camSizeX + 1) * i + j) * 2] = -1.0f + 2.0f * j / camSizeX;
+			positions[((camSizeX + 1) * i + j) * 2 + 1] = -1.0f + 2.0f * i / camSizeY;
 		}
-		yPos += yDist;
 	}
 	return positions;
 }
 
-//generate List of indices to draw from square positions
-unsigned int* generateIndicesFromPositions(unsigned int* indexCount, positionOnScreen* p)
+//Rebuild everything that depends on the number of visible cells
+static void updateGeometry(void)
 {
-	positionOnScreen* tmpPos = p;
-	unsigned int i;
-	unsigned int* indexes = NULL;
-	unsigned int* tmp;
-	*indexCount = 0;
+	float* positions;
+	IndexList grid = { 0 };
+	int x, y;
+	size_t cells = (size_t)camSizeX * camSizeY;
 
-	if (p == NULL)
+	if (!gfx.geometryDirty)
+		return;
+	gfx.geometryDirty = false;
+
+	positions = generateVertexPositions();
+	GLCall(glBindBuffer(GL_ARRAY_BUFFER, gfx.vbo));
+	GLCall(glBufferData(GL_ARRAY_BUFFER, (camSizeX + 1) * (camSizeY + 1) * 2 * sizeof(float), positions, GL_STATIC_DRAW));
+	free(positions);
+
+	for (y = 0; y < camSizeY; y++)
 	{
-		return NULL;
+		for (x = 0; x < camSizeX; x++)
+		{
+			pushSquare(&grid, x, y);
+		}
 	}
+	GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gfx.gridIbo));
+	GLCall(glBufferData(GL_ELEMENT_ARRAY_BUFFER, grid.count * sizeof(unsigned int), grid.data, GL_STATIC_DRAW));
+	gfx.gridIndexCount = grid.count;
+	free(grid.data);
 
-	while (1)
-	{
-		tmp = (unsigned int*)malloc(((*indexCount) + 6) * sizeof(unsigned int));
-
-		for (i = 0; i < (*indexCount); i++)
-		{
-			tmp[i] = indexes[i];
-		}
-		//Expanding array and copying the data into it
-		free(indexes);
-		indexes = (unsigned int*)malloc(((*indexCount + 6)) * sizeof(unsigned int));
-
-		for (i = 0; i < (*indexCount); i++)
-		{
-			indexes[i] = tmp[i];
-		}
-		free(tmp);
-
-		//First triangle
-		indexes[(*indexCount)] = ((xCount + 1) * tmpPos->y) + tmpPos->x;
-		indexes[(*indexCount) + 1] = ((xCount + 1) * tmpPos->y) + tmpPos->x + 1;
-		indexes[(*indexCount) + 2] = ((xCount + 1) * (tmpPos->y + 1)) + tmpPos->x + 1;
-		//Second triangle
-		indexes[(*indexCount) + 3] = ((xCount + 1) * tmpPos->y) + tmpPos->x;
-		indexes[(*indexCount) + 4] = ((xCount + 1) * (tmpPos->y + 1)) + tmpPos->x;
-		indexes[(*indexCount) + 5] = ((xCount + 1) * (tmpPos->y + 1)) + tmpPos->x + 1;
-		//Updating count
-		(*indexCount) += 6;
-
-		if (tmpPos->next == NULL)
-		{
-			break;
-		}
-		tmpPos = tmpPos->next;
-	}
-	return indexes;
+	free(gfx.cellGrid);
+	free(gfx.haloGrid);
+	free(gfx.haloHaloGrid);
+	gfx.cellGrid = (unsigned char*)malloc(cells);
+	gfx.haloGrid = (unsigned char*)malloc(cells);
+	gfx.haloHaloGrid = (unsigned char*)malloc(cells);
 }
 
-//generate List of halo indices to draw from square positions to draw around existing squares
-unsigned int* generateHaloIndicesFromPositions(unsigned int* indexCount, positionOnScreen* p)
+//Mark the visible living cells
+static void markCells(unsigned char* grid)
 {
-	positionOnScreen* tmpPos = p;
-	positionOnScreen* tmpPos2 = p;
-	unsigned int i;
-	unsigned int* indexes = NULL;
-	unsigned int* tmpIndices;
-	unsigned int neighbourcount;
-	bool upperNeighBour, rightNeighBour, downNeighBour, leftNeighBour;
+	cell* c;
 
-	*indexCount = 0;
+	memset(grid, 0, (size_t)camSizeX * camSizeY);
 
-	if (p == NULL)
+	for (c = board; c != NULL; c = c->next)
 	{
-		return NULL;
+		if (camPosX <= c->x && (camPosX + camSizeX) > c->x && camPosY <= c->y && (camPosY + camSizeY) > c->y)
+		{
+			grid[(c->y - camPosY) * camSizeX + (c->x - camPosX)] = 1;
+		}
 	}
-
-	while (1)
-	{
-		if (debug)
-		{
-			printf("%d, %d\n", tmpPos2->x, tmpPos2->y);
-		}
-
-		if (tmpPos2->next == NULL)
-		{
-			break;
-		}
-		tmpPos2 = tmpPos2->next;
-	}
-
-	while (1)
-	{
-		neighbourcount = 0;
-		upperNeighBour = rightNeighBour = downNeighBour = leftNeighBour = false;
-		tmpPos2 = p;
-
-		while (1)
-		{
-			if (tmpPos2->x == tmpPos->x)
-			{
-				if (tmpPos2->y == tmpPos->y - 1)
-				{
-					neighbourcount++;
-					downNeighBour = true;
-				}
-				else if (tmpPos2->y == tmpPos->y + 1)
-				{
-					neighbourcount++;
-					upperNeighBour = true;
-				}
-			}
-			else if (tmpPos2->y == tmpPos->y)
-			{
-				if (tmpPos2->x == tmpPos->x - 1)
-				{
-					neighbourcount++;
-					leftNeighBour = true;
-				}
-				else if (tmpPos2->x == tmpPos->x + 1)
-				{
-					neighbourcount++;
-					rightNeighBour = true;
-				}
-			}
-
-			if (tmpPos2->next == NULL)
-			{
-				break;
-			}
-			tmpPos2 = tmpPos2->next;
-		}
-
-		if (neighbourcount > 2)
-		{
-			tmpIndices = (unsigned int*)malloc(((*indexCount) + 6) * sizeof(unsigned int));
-
-			for (i = 0; i < (*indexCount); i++)
-			{
-				tmpIndices[i] = indexes[i];
-			}
-			//Expanding array and copying the data into it
-			free(indexes);
-			indexes = (unsigned int*)malloc(((*indexCount + 6)) * sizeof(unsigned int));
-
-			for (i = 0; i < (*indexCount); i++)
-			{
-				indexes[i] = tmpIndices[i];
-			}
-			free(tmpIndices);
-
-			//First triangle
-			indexes[(*indexCount)] = ((xCount + 1) * tmpPos->y) + tmpPos->x;
-			indexes[(*indexCount) + 1] = ((xCount + 1) * tmpPos->y) + tmpPos->x + 1;
-			indexes[(*indexCount) + 2] = ((xCount + 1) * (tmpPos->y + 1)) + tmpPos->x + 1;
-			//Second triangle
-			indexes[(*indexCount) + 3] = ((xCount + 1) * tmpPos->y) + tmpPos->x;
-			indexes[(*indexCount) + 4] = ((xCount + 1) * (tmpPos->y + 1)) + tmpPos->x;
-			indexes[(*indexCount) + 5] = ((xCount + 1) * (tmpPos->y + 1)) + tmpPos->x + 1;
-			//Updating count
-			(*indexCount) += 6;
-		}
-		else if (neighbourcount == 2)
-		{
-			if (leftNeighBour && downNeighBour)
-			{
-				tmpIndices = (unsigned int*)malloc(((*indexCount) + 3) * sizeof(unsigned int));
-
-				for (i = 0; i < (*indexCount); i++)
-				{
-					tmpIndices[i] = indexes[i];
-				}
-				//Expanding array and copying the data into it
-				free(indexes);
-				indexes = (unsigned int*)malloc(((*indexCount + 3)) * sizeof(unsigned int));
-
-				for (i = 0; i < (*indexCount); i++)
-				{
-					indexes[i] = tmpIndices[i];
-				}
-				free(tmpIndices);
-
-				indexes[(*indexCount)] = ((xCount + 1) * tmpPos->y) + tmpPos->x;
-				indexes[(*indexCount) + 1] = ((xCount + 1) * tmpPos->y) + tmpPos->x + 1;
-				indexes[(*indexCount) + 2] = ((xCount + 1) * (tmpPos->y + 1)) + tmpPos->x;
-				//Updating count
-				(*indexCount) += 3;
-			}
-			else if (downNeighBour && rightNeighBour)
-			{
-				tmpIndices = (unsigned int*)malloc(((*indexCount) + 3) * sizeof(unsigned int));
-
-				for (i = 0; i < (*indexCount); i++)
-				{
-					tmpIndices[i] = indexes[i];
-				}
-				//Expanding array and copying the data into it
-				free(indexes);
-				indexes = (unsigned int*)malloc(((*indexCount + 3)) * sizeof(unsigned int));
-
-				for (i = 0; i < (*indexCount); i++)
-				{
-					indexes[i] = tmpIndices[i];
-				}
-				free(tmpIndices);
-
-				indexes[(*indexCount)] = ((xCount + 1) * tmpPos->y) + tmpPos->x;
-				indexes[(*indexCount) + 1] = ((xCount + 1) * tmpPos->y) + tmpPos->x + 1;
-				indexes[(*indexCount) + 2] = ((xCount + 1) * (tmpPos->y + 1)) + tmpPos->x + 1;
-				//Updating count
-				(*indexCount) += 3;
-			}
-			else if (rightNeighBour && upperNeighBour)
-			{
-				tmpIndices = (unsigned int*)malloc(((*indexCount) + 3) * sizeof(unsigned int));
-
-				for (i = 0; i < (*indexCount); i++)
-				{
-					tmpIndices[i] = indexes[i];
-				}
-				//Expanding array and copying the data into it
-				free(indexes);
-				indexes = (unsigned int*)malloc(((*indexCount + 3)) * sizeof(unsigned int));
-
-				for (i = 0; i < (*indexCount); i++)
-				{
-					indexes[i] = tmpIndices[i];
-				}
-				free(tmpIndices);
-
-				indexes[(*indexCount)] = ((xCount + 1) * (tmpPos->y + 1)) + tmpPos->x;
-				indexes[(*indexCount) + 1] = ((xCount + 1) * tmpPos->y) + tmpPos->x + 1;
-				indexes[(*indexCount) + 2] = ((xCount + 1) * (tmpPos->y + 1)) + tmpPos->x + 1;
-				//Updating count
-				(*indexCount) += 3;
-			}
-			else if (upperNeighBour && leftNeighBour)
-			{
-				tmpIndices = (unsigned int*)malloc(((*indexCount) + 3) * sizeof(unsigned int));
-
-				for (i = 0; i < (*indexCount); i++)
-				{
-					tmpIndices[i] = indexes[i];
-				}
-				//Expanding array and copying the data into it
-				free(indexes);
-				indexes = (unsigned int*)malloc(((*indexCount + 3)) * sizeof(unsigned int));
-
-				for (i = 0; i < (*indexCount); i++)
-				{
-					indexes[i] = tmpIndices[i];
-				}
-				free(tmpIndices);
-
-				indexes[(*indexCount)] = ((xCount + 1) * (tmpPos->y + 1)) + tmpPos->x;
-				indexes[(*indexCount) + 1] = ((xCount + 1) * tmpPos->y) + tmpPos->x;
-				indexes[(*indexCount) + 2] = ((xCount + 1) * (tmpPos->y + 1)) + tmpPos->x + 1;
-				//Updating count
-				(*indexCount) += 3;
-			}
-		}
-
-		if (tmpPos->next == NULL)
-		{
-			break;
-		}
-		tmpPos = tmpPos->next;
-	}
-	return indexes;
 }
 
-///Actions shared by the keyboard and the toolbar buttons
+//Mark every place in or next to a marked place
+static void dilate(const unsigned char* src, unsigned char* dst)
+{
+	int x, y, dx, dy;
+
+	memset(dst, 0, (size_t)camSizeX * camSizeY);
+
+	for (y = 0; y < camSizeY; y++)
+	{
+		for (x = 0; x < camSizeX; x++)
+		{
+			if (!src[y * camSizeX + x])
+				continue;
+
+			for (dy = -1; dy <= 1; dy++)
+			{
+				for (dx = -1; dx <= 1; dx++)
+				{
+					if (x + dx >= 0 && x + dx < camSizeX && y + dy >= 0 && y + dy < camSizeY)
+					{
+						dst[(y + dy) * camSizeX + x + dx] = 1;
+					}
+				}
+			}
+		}
+	}
+}
+
+static void squareIndices(const unsigned char* grid, IndexList* list)
+{
+	int x, y;
+
+	for (y = 0; y < camSizeY; y++)
+	{
+		for (x = 0; x < camSizeX; x++)
+		{
+			if (grid[y * camSizeX + x])
+			{
+				pushSquare(list, x, y);
+			}
+		}
+	}
+}
+
+//Halo shape: full squares inside, triangles on the corners to round it off
+static void haloIndices(const unsigned char* grid, IndexList* list)
+{
+	int x, y;
+	bool up, right, down, left;
+	unsigned int neighbourCount;
+
+	for (y = 0; y < camSizeY; y++)
+	{
+		for (x = 0; x < camSizeX; x++)
+		{
+			if (!grid[y * camSizeX + x])
+				continue;
+
+			up = y + 1 < camSizeY && grid[(y + 1) * camSizeX + x];
+			down = y > 0 && grid[(y - 1) * camSizeX + x];
+			left = x > 0 && grid[y * camSizeX + x - 1];
+			right = x + 1 < camSizeX && grid[y * camSizeX + x + 1];
+			neighbourCount = up + down + left + right;
+
+			if (neighbourCount > 2)
+			{
+				pushSquare(list, x, y);
+			}
+			else if (neighbourCount == 2)
+			{
+				if (left && down)
+					pushTriangle(list, vertexIndex(x, y), vertexIndex(x + 1, y), vertexIndex(x, y + 1));
+				else if (down && right)
+					pushTriangle(list, vertexIndex(x, y), vertexIndex(x + 1, y), vertexIndex(x + 1, y + 1));
+				else if (right && up)
+					pushTriangle(list, vertexIndex(x, y + 1), vertexIndex(x + 1, y), vertexIndex(x + 1, y + 1));
+				else if (up && left)
+					pushTriangle(list, vertexIndex(x, y + 1), vertexIndex(x, y), vertexIndex(x + 1, y + 1));
+			}
+		}
+	}
+}
+
+static void drawIndices(unsigned int ibo, const unsigned int* data, unsigned int count, float r, float g, float b, float a)
+{
+	if (count == 0)
+		return;
+
+	GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo));
+
+	if (data != NULL)
+	{
+		GLCall(glBufferData(GL_ELEMENT_ARRAY_BUFFER, count * sizeof(unsigned int), data, GL_STREAM_DRAW));
+	}
+	GLCall(glUniform4f(gfx.uColor, r, g, b, a));
+	GLCall(glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, NULL));
+}
+
+///Editing the board. The precomputed next generation is thrown away on every change
+
+static void editBegin(void)
+{
+	if (tmpBoard != board)
+	{
+		deleteCell(tmpBoard);
+	}
+	tmpBoard = NULL;
+}
+
+static void editEnd(void)
+{
+	tmpBoard = board;
+}
+
+//Screen cell (0, 0 is the bottom left of the grid) at the given window position
+static bool windowToScreenCell(double mx, double my, int* col, int* row)
+{
+	double fromBottom = (double)(TOOLBAR_HEIGHT + GRID_HEIGHT) - my;
+
+	if (mx < 0 || mx >= GRID_WIDTH || my < TOOLBAR_HEIGHT || fromBottom <= 0)
+		return false;
+
+	*col = (int)(mx / sqrSize);
+	*row = (int)(fromBottom / sqrSize);
+
+	if (*col >= camSizeX)
+		*col = camSizeX - 1;
+	if (*row >= camSizeY)
+		*row = camSizeY - 1;
+	return true;
+}
+
+//World cell under the mouse, false if the mouse is not over the grid
+static bool mouseCell(long long* x, long long* y)
+{
+	double mx, my;
+	int col, row;
+
+	glfwGetCursorPos(gfx.window, &mx, &my);
+
+	if (!windowToScreenCell(mx, my, &col, &row))
+		return false;
+
+	*x = camPosX + col;
+	*y = camPosY + row;
+	return true;
+}
+
+//Bottom left corner of the ghost when centered on the given cell
+static void ghostOrigin(long long x, long long y, long long* ox, long long* oy)
+{
+	*ox = x - ghostWidth / 2;
+	*oy = y - ghostHeight / 2;
+}
+
+static void placeGhost(long long x, long long y)
+{
+	long long ox, oy;
+	int i;
+
+	ghostOrigin(x, y, &ox, &oy);
+	editBegin();
+
+	for (i = 0; i < ghostCount; i++)
+	{
+		board = setCell(board, ox + ghostCells[i * 2], oy + ghostCells[i * 2 + 1], true);
+	}
+	editEnd();
+}
+
+///Actions shared by the keyboard, the mouse and the toolbar buttons
+
+//Camera moves faster when zoomed out
+static int scrollSpeed(void)
+{
+	return camSizeX / 30 > 1 ? camSizeX / 30 : 1;
+}
 
 void moveCamera(int dx, int dy)
 {
-	if (dx > 0 && camPosX < (LONGLONG_MAX - scrollSpeed))
-		camPosX += scrollSpeed;
-	if (dx < 0 && (camPosX + camSizeX) > (LONGLONG_MIN) + scrollSpeed)
-		camPosX -= scrollSpeed;
-	if (dy > 0 && (camPosY + camSizeY) < (LONGLONG_MAX - scrollSpeed))
-		camPosY += scrollSpeed;
-	if (dy < 0 && camPosY > (LONGLONG_MIN) + scrollSpeed)
-		camPosY -= scrollSpeed;
+	int speed = scrollSpeed();
+
+	if (dx > 0 && camPosX < (LONGLONG_MAX - speed))
+		camPosX += speed;
+	if (dx < 0 && (camPosX + camSizeX) > (LONGLONG_MIN) + speed)
+		camPosX -= speed;
+	if (dy > 0 && (camPosY + camSizeY) < (LONGLONG_MAX - speed))
+		camPosY += speed;
+	if (dy < 0 && camPosY > (LONGLONG_MIN) + speed)
+		camPosY -= speed;
 
 	if (debug)
 	{
 		printf("%lld, %lld\n", (camPosX + camSizeX / 2), (camPosY + camSizeY / 2));
 	}
+}
+
+//Zoom keeping the world point at the given screen position (in cells) in place
+static void zoomAround(int direction, double anchorCol, double anchorRow)
+{
+	int newLevel = zoomLevel + direction;
+	double pixelX, pixelY;
+
+	if (newLevel < 0 || newLevel >= ZOOM_LEVEL_COUNT)
+		return;
+
+	pixelX = anchorCol * sqrSize;
+	pixelY = anchorRow * sqrSize;
+
+	zoomLevel = newLevel;
+	sqrSize = zoomLevels[zoomLevel];
+	camSizeX = GRID_WIDTH / sqrSize;
+	camSizeY = GRID_HEIGHT / sqrSize;
+
+	camPosX += (long long)floor(anchorCol - pixelX / sqrSize + 0.5);
+	camPosY += (long long)floor(anchorRow - pixelY / sqrSize + 0.5);
+	gfx.geometryDirty = true;
+}
+
+void zoomIn(void)
+{
+	zoomAround(1, camSizeX / 2.0, camSizeY / 2.0);
+}
+
+void zoomOut(void)
+{
+	zoomAround(-1, camSizeX / 2.0, camSizeY / 2.0);
+}
+
+int zoomPercent(void)
+{
+	return (int)(sqrSize * 100 / zoomLevels[DEFAULT_ZOOM]);
+}
+
+bool canZoomIn(void)
+{
+	return zoomLevel + 1 < ZOOM_LEVEL_COUNT;
+}
+
+bool canZoomOut(void)
+{
+	return zoomLevel > 0;
 }
 
 void togglePause(void)
@@ -506,6 +590,94 @@ void toggleHalo(void)
 	showHalo = !showHalo;
 }
 
+void toggleGrid(void)
+{
+	showGrid = !showGrid;
+}
+
+void clearBoard(void)
+{
+	editBegin();
+	deleteCell(board);
+	board = NULL;
+	editEnd();
+}
+
+void startPlacing(int pattern)
+{
+	const char* p;
+	int x = 0, row = 0;
+
+	if (pattern < 0 || pattern >= patternCount)
+		return;
+
+	placingPattern = pattern;
+	ghostWidth = patterns[pattern].width;
+	ghostHeight = patterns[pattern].height;
+	ghostCount = 0;
+	free(ghostCells);
+	ghostCells = (int*)malloc(sizeof(int) * 2 * ghostWidth * ghostHeight);
+
+	//Rows go from top to bottom, cell y coordinates go up
+	for (p = patterns[pattern].rows; *p; p++)
+	{
+		if (*p == '\n')
+		{
+			row++;
+			x = 0;
+			continue;
+		}
+
+		if (*p == 'O')
+		{
+			ghostCells[ghostCount * 2] = x;
+			ghostCells[ghostCount * 2 + 1] = ghostHeight - 1 - row;
+			ghostCount++;
+		}
+		x++;
+	}
+}
+
+void stopPlacing(void)
+{
+	placingPattern = -1;
+	ghostCount = 0;
+}
+
+void rotatePlacing(void)
+{
+	int i, x;
+
+	if (placingPattern < 0)
+		return;
+
+	//Clockwise
+	for (i = 0; i < ghostCount; i++)
+	{
+		x = ghostCells[i * 2];
+		ghostCells[i * 2] = ghostCells[i * 2 + 1];
+		ghostCells[i * 2 + 1] = ghostWidth - 1 - x;
+	}
+	x = ghostWidth;
+	ghostWidth = ghostHeight;
+	ghostHeight = x;
+}
+
+void flipPlacing(void)
+{
+	int i;
+
+	if (placingPattern < 0)
+		return;
+
+	for (i = 0; i < ghostCount; i++)
+	{
+		ghostCells[i * 2] = ghostWidth - 1 - ghostCells[i * 2];
+	}
+}
+
+///Input
+
 //Handle key presses
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
@@ -521,9 +693,16 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	case GLFW_KEY_LEFT: moveCamera(-1, 0); break;
 	case GLFW_KEY_DOWN: moveCamera(0, -1); break;
 	case GLFW_KEY_UP: moveCamera(0, 1); break;
+	case GLFW_KEY_EQUAL: zoomIn(); break;
+	case GLFW_KEY_MINUS: zoomOut(); break;
 
 		///Game speed
-	case GLFW_KEY_ESCAPE: //Pause/Play
+	case GLFW_KEY_ESCAPE: //Stop placing, or Pause/Play
+		if (placingPattern >= 0)
+			stopPlacing();
+		else
+			togglePause();
+		break;
 	case GLFW_KEY_SPACE:
 		togglePause();
 		break;
@@ -539,32 +718,114 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	case GLFW_KEY_G: cycleColor(&green); break;
 	case GLFW_KEY_B: cycleColor(&blue); break;
 	case GLFW_KEY_H: toggleHalo(); break;
+	case GLFW_KEY_L: toggleGrid(); break;
+
+		///Placing patterns
+	case GLFW_KEY_Q: rotatePlacing(); break;
+	case GLFW_KEY_F: flipPlacing(); break;
 	default:
 		break;
 	}
 }
 
-void drawToWindow(GLFWwindow* window, unsigned int* buffer, unsigned int vao,
-	unsigned int ibo, unsigned int shader, int u_ColorLocation, int u_holeColorLocation,
-	int u_sqrSizeLocation, int u_gapSizeLocation, int u_holeSizeLocation, float* positions)
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 {
-	unsigned int* cellIndices; //Array of cell verticies to draw
-	unsigned int* haloIndices; //Array of halo verticies to draw
-	unsigned int* haloHaloIndices; //Array of halo halo verticies to draw
+	long long x, y;
 
-	positionOnScreen* cellPos;
-	positionOnScreen* haloPos;
-	positionOnScreen* haloHaloPos;
+	uiMouseButtonCallback(window, button, action, mods);
 
-	unsigned int cellIndexCount = 0;
-	unsigned int haloIndexCount = 0;
-	unsigned int haloHaloIndexCount = 0;
+	if (action == GLFW_RELEASE)
+	{
+		if (button == GLFW_MOUSE_BUTTON_LEFT)
+			painting = false;
+		return;
+	}
 
+	if (uiWantsMouse())
+		return;
+
+	if (button == GLFW_MOUSE_BUTTON_RIGHT && placingPattern >= 0)
+	{
+		stopPlacing();
+		return;
+	}
+
+	if (button != GLFW_MOUSE_BUTTON_LEFT || !mouseCell(&x, &y))
+		return;
+
+	if (placingPattern >= 0)
+	{
+		placeGhost(x, y);
+		return;
+	}
+
+	//Flip the clicked cell, dragging sets more cells to the same state
+	paintState = !isCellAlive(board, x, y);
+	editBegin();
+	board = setCell(board, x, y, paintState);
+	editEnd();
+
+	painting = true;
+	lastPaintX = x;
+	lastPaintY = y;
+}
+
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
+{
+	double mx, my;
+	int col, row;
+
+	uiScrollCallback(window, xoffset, yoffset);
+
+	if (uiWantsMouse() || yoffset == 0)
+		return;
+
+	glfwGetCursorPos(window, &mx, &my);
+
+	if (!windowToScreenCell(mx, my, &col, &row))
+		return;
+
+	//Zoom around the point under the mouse
+	zoomAround(yoffset > 0 ? 1 : -1, mx / sqrSize, ((TOOLBAR_HEIGHT + GRID_HEIGHT) - my) / sqrSize);
+}
+
+//Keep drawing while the mouse is dragged with the left button down
+static void continuePainting(void)
+{
+	long long x, y;
+
+	if (!painting)
+		return;
+
+	if (glfwGetMouseButton(gfx.window, GLFW_MOUSE_BUTTON_LEFT) != GLFW_PRESS)
+	{
+		painting = false;
+		return;
+	}
+
+	if (!mouseCell(&x, &y) || (x == lastPaintX && y == lastPaintY))
+		return;
+
+	editBegin();
+	board = setCell(board, x, y, paintState);
+	editEnd();
+	lastPaintX = x;
+	lastPaintY = y;
+}
+
+///Drawing
+
+void drawToWindow(GLFWwindow* window)
+{
+	static IndexList cells, halo, haloHalo, ghost;
 	int winWidth, winHeight, fbWidth, fbHeight;
 	float scale; //Framebuffer pixels per window unit (HiDPI)
+	long long mouseX, mouseY, ox, oy, x, y;
+	int i;
 
 	//Build the toolbar first, button presses can change the board
 	uiFrame();
+	continuePainting();
 
 	glfwGetWindowSize(window, &winWidth, &winHeight);
 	glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
@@ -574,66 +835,61 @@ void drawToWindow(GLFWwindow* window, unsigned int* buffer, unsigned int vao,
 	GLCall(glClear(GL_COLOR_BUFFER_BIT));
 
 	//The grid is drawn at the bottom of the window, below the toolbar
-	GLCall(glViewport(0, 0, fbWidth, (int)(sqrSize * yCount * scale + 0.5f)));
+	GLCall(glViewport(0, 0, fbWidth, (int)(GRID_HEIGHT * scale + 0.5f)));
 
 	//Bind Everything
-	GLCall(glUseProgram(shader));
-	GLCall(glBindVertexArray(vao));
-	GLCall(glUniform1f(u_sqrSizeLocation, sqrSize * scale));
-	GLCall(glUniform1f(u_gapSizeLocation, gapSize * scale));
+	GLCall(glUseProgram(gfx.shader));
+	GLCall(glBindVertexArray(gfx.vao));
+	updateGeometry(); //Needs the vertex array bound, it binds index buffers
+	GLCall(glUniform1f(gfx.uSqrSize, sqrSize * scale));
+	GLCall(glUniform1f(gfx.uGapSize, (sqrSize < 10 ? 0.5f : 1.0f) * scale)); //Thinner gaps when zoomed out
+	GLCall(glUniform4f(gfx.uHoleColor, 0.2f, 0.2f, 0.2f, 0.5f));
 
-	cellPos = getCellPositions(board);
-	cellIndices = generateIndicesFromPositions(&cellIndexCount, cellPos);
+	cells.count = halo.count = haloHalo.count = ghost.count = 0;
+
+	///Drawing the grid
+	if (showGrid)
+	{
+		drawIndices(gfx.gridIbo, NULL, gfx.gridIndexCount, gridBrightness, gridBrightness, gridBrightness, 1.0f);
+	}
+
+	markCells(gfx.cellGrid);
 
 	if (showHalo)
 	{
-		haloPos = getHaloPositions(&haloIndexCount, cellPos);
-		haloIndices = generateHaloIndicesFromPositions(&haloIndexCount, haloPos);
-
-		haloHaloPos = getHaloPositions(&haloHaloIndexCount, haloPos);
-		haloHaloIndices = generateHaloIndicesFromPositions(&haloHaloIndexCount, haloHaloPos);
+		dilate(gfx.cellGrid, gfx.haloGrid);
+		dilate(gfx.haloGrid, gfx.haloHaloGrid);
+		haloIndices(gfx.haloGrid, &halo);
+		haloIndices(gfx.haloHaloGrid, &haloHalo);
 
 		///Drawing the halo halo
-		GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo));
-		GLCall(glBufferData(GL_ELEMENT_ARRAY_BUFFER, haloHaloIndexCount * sizeof(unsigned int), &haloHaloIndices[0], GL_STATIC_DRAW)); //Setting the layout of the buffer
-
-		//Setting shader
-		GLCall(glUniform4f(u_ColorLocation, red * showHalo * haloHaloFactor, green * showHalo * haloHaloFactor, blue * showHalo * haloHaloFactor, 0.5f));
-		GLCall(glUniform4f(u_holeColorLocation, 0.2f, 0.2f, 0.2f, 0.5f));
-		//GLCall(glUniform1f(f_holeSizeLocation, holeSize));
-
-		//Draw the triangles
-		GLCall(glDrawElements(GL_TRIANGLES, haloHaloIndexCount, GL_UNSIGNED_INT, NULL));
-
+		drawIndices(gfx.ibo, haloHalo.data, haloHalo.count, red * haloHaloFactor, green * haloHaloFactor, blue * haloHaloFactor, 0.5f);
 
 		///Drawing the halo
-		GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo));
-		GLCall(glBufferData(GL_ELEMENT_ARRAY_BUFFER, haloIndexCount * sizeof(unsigned int), &haloIndices[0], GL_STATIC_DRAW)); //Setting the layout of the buffer
-
-		//Setting shader
-		GLCall(glUniform4f(u_ColorLocation, red * showHalo * haloFactor, green * showHalo * haloFactor, blue * showHalo * haloFactor, 0.7f));
-		//GLCall(glUniform1f(f_holeSizeLocation, holeSize));
-
-		//Draw the triangles
-		GLCall(glDrawElements(GL_TRIANGLES, haloIndexCount, GL_UNSIGNED_INT, NULL));
-
-		//freeing everything
-		free(haloIndices);
-		deletePositionOnScreen(haloPos);
-		free(haloHaloIndices);
-		deletePositionOnScreen(haloHaloPos);
+		drawIndices(gfx.ibo, halo.data, halo.count, red * haloFactor, green * haloFactor, blue * haloFactor, 0.7f);
 	}
 
 	///Drawing the cells
-	GLCall(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo));
-	GLCall(glBufferData(GL_ELEMENT_ARRAY_BUFFER, cellIndexCount * sizeof(unsigned int), &cellIndices[0], GL_STATIC_DRAW)); //Setting the layout of the buffer
+	squareIndices(gfx.cellGrid, &cells);
+	drawIndices(gfx.ibo, cells.data, cells.count, red, green, blue, 1.0f);
 
-	//Setting shader
-	GLCall(glUniform4f(u_ColorLocation, red, green, blue, 1.0f));
-	//GLCall(glUniform1f(f_holeSizeLocation, 0));
+	///Drawing the pattern being placed under the mouse
+	if (placingPattern >= 0 && !uiWantsMouse() && mouseCell(&mouseX, &mouseY))
+	{
+		ghostOrigin(mouseX, mouseY, &ox, &oy);
 
-	//Draw the triangles
-	GLCall(glDrawElements(GL_TRIANGLES, cellIndexCount, GL_UNSIGNED_INT, NULL));
+		for (i = 0; i < ghostCount; i++)
+		{
+			x = ox + ghostCells[i * 2] - camPosX;
+			y = oy + ghostCells[i * 2 + 1] - camPosY;
+
+			if (x >= 0 && x < camSizeX && y >= 0 && y < camSizeY)
+			{
+				pushSquare(&ghost, (int)x, (int)y);
+			}
+		}
+		drawIndices(gfx.ibo, ghost.data, ghost.count, ghostBrightness, ghostBrightness, ghostBrightness, 1.0f);
+	}
 
 	//Draw the toolbar on top
 	uiRender();
@@ -643,38 +899,11 @@ void drawToWindow(GLFWwindow* window, unsigned int* buffer, unsigned int vao,
 
 	/* Poll for and process events */
 	GLCall(glfwPollEvents());
-
-	//freeing everything
-	free(cellIndices);
-	deletePositionOnScreen(cellPos);
-
-	//red += 0.07;
-	//green -= 0.1;
-	//blue += 0.12;
-
-	//if (red > 1.0f) red -= 1.0f;
-	//if (green < 01.0f) green += 1.0f;
-	//if (blue > 1.0f) blue -= 1.0f;
 }
 
 int main(int argc, char* argv[])
 {
-	GLFWwindow* window; //Window
-
-	unsigned int buffer; //Vertex Bufffer
-	unsigned int vao; // Vertex Array
-	unsigned int ibo; //Index Buffer
-
 	ShaderProgramSource shaderSource; //Source of the shaders
-	unsigned int shaderId; //Id of shader in GPU
-
-	int u_ColorLocation; // u_Color uniform location
-	int u_holeColorLocation; // u_holeColor uniform location
-	int u_sqrSizeLocation; // u_sqrSize location
-	int u_gapSizeLocation; // u_gapSize location
-	int u_holeSizeLocation; // u_gapSize location
-
-	float* vertexPositions; //vertex coordinates
 	double elapsedTime; //Time since last game tick, in ms
 
 	if (argc >= 3)
@@ -696,29 +925,28 @@ int main(int argc, char* argv[])
 	}
 	tmpBoard = board;
 
-	if (initWindow(&window) == -1)
+	if (initWindow(&gfx.window) == -1)
 	{
 		return -1;
 	}
-	uiInit(window);
-	glfwSetKeyCallback(window, key_callback); //Replaces the UI's key callback, which it forwards to
+	uiInit(gfx.window);
+	//Replace the UI's callbacks, they get forwarded to it
+	glfwSetKeyCallback(gfx.window, key_callback);
+	glfwSetMouseButtonCallback(gfx.window, mouse_button_callback);
+	glfwSetScrollCallback(gfx.window, scroll_callback);
 
-	vertexPositions = generateVertexPositions();
+	GLCall(glGenVertexArrays(1, &gfx.vao));
+	GLCall(glBindVertexArray(gfx.vao));
 
-	GLCall(glGenVertexArrays(1, &vao));
-	GLCall(glBindVertexArray(vao));
+	//Creating the buffers, they are filled in updateGeometry
+	GLCall(glGenBuffers(1, &gfx.vbo));
+	GLCall(glGenBuffers(1, &gfx.ibo));
+	GLCall(glGenBuffers(1, &gfx.gridIbo));
+	gfx.geometryDirty = true;
 
-	//Creating Vertex buffer
-	GLCall(glGenBuffers(1, &buffer));
-	GLCall(glBindBuffer(GL_ARRAY_BUFFER, buffer));
-	GLCall(glBufferData(GL_ARRAY_BUFFER, (xCount + 1) * (yCount + 1) * 2 * sizeof(float), vertexPositions, GL_STATIC_DRAW));
-
-	free(vertexPositions);
+	GLCall(glBindBuffer(GL_ARRAY_BUFFER, gfx.vbo));
 	GLCall(glEnableVertexAttribArray(0));
 	GLCall(glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 2, 0)); //Setting the layout of the buffer
-
-	//Creating the Index Buffer
-	GLCall(glGenBuffers(1, &ibo));
 
 	//Getting the source code of the shader
 	shaderSource = ParseShader("res/shaders/basic.shader");
@@ -731,31 +959,29 @@ int main(int argc, char* argv[])
 	}
 
 	//Compiling and running shader
-	shaderId = CreateShader(shaderSource.VertexSource, shaderSource.FragmentSource);
-	GLCall(glUseProgram(shaderId));
+	gfx.shader = CreateShader(shaderSource.VertexSource, shaderSource.FragmentSource);
+	GLCall(glUseProgram(gfx.shader));
 	free(shaderSource.FragmentSource);
 	free(shaderSource.VertexSource);
 
 	//Getting the location of the uniforms
-	GLCall(u_ColorLocation = glGetUniformLocation(shaderId, "u_Color"));
-	ASSERT(u_ColorLocation != -1);
+	GLCall(gfx.uColor = glGetUniformLocation(gfx.shader, "u_Color"));
+	ASSERT(gfx.uColor != -1);
 
-	GLCall(u_holeColorLocation = glGetUniformLocation(shaderId, "u_holeColor"));
-	ASSERT(u_holeColorLocation != -1);
+	GLCall(gfx.uHoleColor = glGetUniformLocation(gfx.shader, "u_holeColor"));
+	ASSERT(gfx.uHoleColor != -1);
 
-	GLCall(u_sqrSizeLocation = glGetUniformLocation(shaderId, "u_sqrSize"));
-	ASSERT(u_sqrSizeLocation != -1);
+	GLCall(gfx.uSqrSize = glGetUniformLocation(gfx.shader, "u_sqrSize"));
+	ASSERT(gfx.uSqrSize != -1);
 
-	GLCall(u_gapSizeLocation = glGetUniformLocation(shaderId, "u_gapSize"));
-	ASSERT(u_gapSizeLocation != -1);
+	GLCall(gfx.uGapSize = glGetUniformLocation(gfx.shader, "u_gapSize"));
+	ASSERT(gfx.uGapSize != -1);
 
-	GLCall(u_holeSizeLocation = glGetUniformLocation(shaderId, "u_holeSize"));
-	ASSERT(u_holeSizeLocation != -1);
+	GLCall(gfx.uHoleSize = glGetUniformLocation(gfx.shader, "u_holeSize"));
+	ASSERT(gfx.uHoleSize != -1);
 
 	//Setting uniforms
-	GLCall(glUniform1f(u_sqrSizeLocation, (float)sqrSize));
-	GLCall(glUniform1f(u_gapSizeLocation, gapSize));
-	GLCall(glUniform1f(u_holeSizeLocation, 0));
+	GLCall(glUniform1f(gfx.uHoleSize, 0));
 
 	//Unbind everything. By binding 0, the binding will be reset
 	GLCall(glBindVertexArray(0));
@@ -764,9 +990,9 @@ int main(int argc, char* argv[])
 	GLCall(glUseProgram(0));
 
 	// Loop until the user closes the window
-	while (!glfwWindowShouldClose(window))
+	while (!glfwWindowShouldClose(gfx.window))
 	{
-		drawToWindow(window, &buffer, vao, ibo, shaderId, u_ColorLocation, u_holeColorLocation, u_sqrSizeLocation, u_gapSizeLocation, u_holeSizeLocation, NULL);
+		drawToWindow(gfx.window);
 		elapsedTime = (glfwGetTime() - lastTick) * 1000.0;
 
 		if (tmpBoard == board)
@@ -776,8 +1002,11 @@ int main(int argc, char* argv[])
 
 		if (gameLoop && elapsedTime > timePerTick)
 		{
-			deleteCell(board);
-			board = tmpBoard;
+			if (tmpBoard != board)
+			{
+				deleteCell(board);
+				board = tmpBoard;
+			}
 			lastTick = glfwGetTime();
 		}
 
@@ -790,8 +1019,16 @@ int main(int argc, char* argv[])
 	}
 
 	//Clean up after running
+	if (tmpBoard != board)
+	{
+		deleteCell(tmpBoard);
+	}
 	deleteCell(board);
-	GLCall(glDeleteProgram(shaderId));
+	free(ghostCells);
+	free(gfx.cellGrid);
+	free(gfx.haloGrid);
+	free(gfx.haloHaloGrid);
+	GLCall(glDeleteProgram(gfx.shader));
 
 	uiShutdown();
 	glfwTerminate();

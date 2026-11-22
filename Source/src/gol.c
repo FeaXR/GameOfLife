@@ -7,8 +7,10 @@
 #include <stdbool.h>
 #include "gol.h"
 
-long long camPosY = -(camSizeY / 2);
-long long camPosX = -(camSizeX / 2);
+int camSizeX = 90;
+int camSizeY = 45;
+long long camPosY = -(45 / 2);
+long long camPosX = -(90 / 2);
 
 cell* createCell(long long x, long long y)
 {
@@ -22,369 +24,179 @@ cell* createCell(long long x, long long y)
 
 void deleteCell(cell* c)
 {
-	if (c == NULL)
-	{
-		return;
-	}
+	cell* next;
 
-	if (c->next != NULL)
+	while (c != NULL)
 	{
-		deleteCell(c->next);
+		next = c->next;
+		free(c);
+		c = next;
 	}
-	free(c);
 }
 
-place* createPlace(long long x, long long y, bool isALive)
+unsigned int countCells(cell* c)
 {
-	place* p = (place*)malloc(sizeof(place));
-	p->x = x;
-	p->y = y;
-	p->isALive = isALive;
-	p->neighbourCount = 0;
-	p->next = NULL;
-	return p;
+	unsigned int count = 0;
+
+	for (; c != NULL; c = c->next)
+	{
+		count++;
+	}
+	return count;
 }
 
-void deletePlace(place* p)
+bool isCellAlive(cell* c, long long x, long long y)
 {
-	if (p == NULL)
+	for (; c != NULL; c = c->next)
 	{
-		return;
+		if (c->x == x && c->y == y)
+		{
+			return true;
+		}
 	}
-
-	if (p->next != NULL)
-	{
-		deletePlace(p->next);
-	}
-	free(p);
+	return false;
 }
 
-place* addPlaceToPlaceList(long long x, long long y, place* plc)
+cell* setCell(cell* c, long long x, long long y, bool alive)
 {
-	place* tmp = plc;
+	cell* prev = NULL;
+	cell* tmp;
 
-	while (1)
+	for (tmp = c; tmp != NULL; prev = tmp, tmp = tmp->next)
 	{
 		if (tmp->x == x && tmp->y == y)
 		{
-			tmp->neighbourCount++;
-			return plc;
-		}
-
-		if (tmp->next == NULL)
-		{
-			break;
-		}
-
-		tmp = tmp->next;
-	}
-	tmp->next = createPlace(x, y, false);
-	tmp->next->neighbourCount = 1;
-	return plc;
-}
-
-place* addCellToPlaceList(long long x, long long y, place* plc)
-{
-	place* tmp = plc;
-
-	while (1)
-	{
-		if (tmp->x == x && tmp->y == y)
-		{
-			tmp->isALive = true;
-			return plc;
-		}
-
-		if (tmp->next == NULL)
-		{
-			break;
-		}
-
-		tmp = tmp->next;
-	}
-	tmp->next = createPlace(x, y, false);
-	tmp->next->isALive = true;
-	return plc;
-}
-
-void deletePositionOnScreen(positionOnScreen* p)
-{
-	if (p == NULL)
-	{
-		return;
-	}
-
-	if (p->next != NULL)
-	{
-		deletePositionOnScreen(p->next);
-	}
-	free(p);
-}
-
-cell* getCellsFromPlaceList(place* p)
-{
-	place* tmp = p;
-	cell* c;
-
-	if (tmp->isALive)
-	{
-		if (tmp->neighbourCount == 2 || tmp->neighbourCount == 3)
-		{
-			c = createCell(tmp->x, tmp->y);
-
-			if (tmp->next != NULL)
+			if (alive)
 			{
-				c->next = getCellsFromPlaceList(tmp->next);
+				return c; //Already alive
+			}
 
-				if (c->next == NULL || !c->next->valid)
-				{
-					free(c->next);
-					c->next = NULL;
-				}
+			//Unlink and free
+			if (prev == NULL)
+			{
+				c = tmp->next;
 			}
 			else
 			{
-				c->next = NULL;
+				prev->next = tmp->next;
 			}
+			free(tmp);
 			return c;
 		}
-
-		if (tmp->next != NULL)
-		{
-			return getCellsFromPlaceList(tmp->next);
-		}
-		return NULL;
-
 	}
-	else
+
+	if (alive)
 	{
-		if (tmp->neighbourCount == 3)
-		{
-			c = createCell(tmp->x, tmp->y);
-
-			if (tmp->next != NULL)
-			{
-				c->next = getCellsFromPlaceList(tmp->next);
-
-				if (c->next == NULL || !c->next->valid)
-				{
-					free(c->next);
-					c->next = NULL;
-				}
-			}
-			else
-			{
-				c->next = NULL;
-			}
-			return c;
-		}
-
-		if (tmp->next != NULL)
-		{
-			return getCellsFromPlaceList(tmp->next);
-		}
-		return NULL;
-	}
-}
-
-positionOnScreen* addToPositionListIfDoesntExist(positionOnScreen* places, int x, int y, unsigned int* count)
-{
-	positionOnScreen* tmp = places;
-
-	if (tmp == NULL)
-	{
-		tmp = (positionOnScreen*)malloc(sizeof(positionOnScreen));
-		tmp->x = x;
-		tmp->y = y;
-		tmp->next = NULL;
-		(*count)++;
+		tmp = createCell(x, y);
+		tmp->next = c;
 		return tmp;
 	}
-
-	while (1)
-	{
-		if (tmp->x == x && tmp->y == y)
-		{
-			return places;
-		}
-
-		if (tmp->next == NULL)
-		{
-			break;
-		}
-		tmp = tmp->next;
-	}
-	tmp->next = (positionOnScreen*)malloc(sizeof(positionOnScreen));
-	tmp = tmp->next;
-	tmp->x = x;
-	tmp->y = y;
-	tmp->next = NULL;
-	(*count)++;
-	return places;
+	return c;
 }
 
-positionOnScreen* getCellPositions(cell* cl)
-{
-	int x, y;
-	cell* tmpCl = cl;
-	positionOnScreen* p = NULL;
-	positionOnScreen* tmpP = NULL;
+///Next generation, using a hash map of every place that is alive or next to a living cell
 
-	if (cl == NULL)
+typedef struct place place;
+
+struct place
+{
+	long long x;
+	long long y;
+	unsigned char neighbourCount;
+	bool isALive;
+	bool used;
+};
+
+static place* findPlace(place* places, size_t mask, long long x, long long y)
+{
+	unsigned long long h = (unsigned long long)x * 0x9E3779B97F4A7C15ULL;
+	size_t i;
+
+	h ^= (unsigned long long)y * 0xC2B2AE3D27D4EB4FULL;
+	h ^= h >> 29;
+	i = (size_t)h & mask;
+
+	//Linear probing
+	while (places[i].used && (places[i].x != x || places[i].y != y))
+	{
+		i = (i + 1) & mask;
+	}
+
+	if (!places[i].used)
+	{
+		places[i].used = true;
+		places[i].x = x;
+		places[i].y = y;
+	}
+	return &places[i];
+}
+
+cell* gameTick(cell* c)
+{
+	cell* tmp;
+	cell* head = NULL;
+	cell* tail = NULL;
+	place* places;
+	size_t capacity = 64;
+	size_t i;
+	unsigned int count = countCells(c);
+	int dx, dy;
+
+	if (count == 0)
 	{
 		return NULL;
 	}
 
-	while (1)
+	//Every cell touches at most 9 places, keep the table at most half full
+	while (capacity < (size_t)count * 18)
 	{
-		if (!tmpCl->valid)
-		{
-			return NULL;
-		}
+		capacity *= 2;
+	}
+	places = (place*)calloc(capacity, sizeof(place));
 
-		if (camPosX <= tmpCl->x && (camPosX + camSizeX) > tmpCl->x)
+	for (tmp = c; tmp != NULL; tmp = tmp->next)
+	{
+		findPlace(places, capacity - 1, tmp->x, tmp->y)->isALive = true;
+
+		for (dx = -1; dx <= 1; dx++)
 		{
-			if (camPosY <= tmpCl->y && (camPosY + camSizeY) > tmpCl->y)
+			//The edges of the world
+			if ((dx < 0 && tmp->x == LONGLONG_MIN) || (dx > 0 && tmp->x == LONGLONG_MAX))
+				continue;
+
+			for (dy = -1; dy <= 1; dy++)
 			{
-				x = tmpCl->x - camPosX;
-				y = tmpCl->y - camPosY;
+				if ((dx == 0 && dy == 0) ||
+					(dy < 0 && tmp->y == LONGLONG_MIN) || (dy > 0 && tmp->y == LONGLONG_MAX))
+					continue;
 
-				if (p == NULL)
-				{
-					p = (positionOnScreen*)malloc(sizeof(positionOnScreen));
-					p->x = x;
-					p->y = y;
-					p->next = NULL;
-					tmpP = p;
-				}
-				else
-				{
-					tmpP->next = (positionOnScreen*)malloc(sizeof(positionOnScreen));
-					tmpP = tmpP->next;
-					tmpP->x = x;
-					tmpP->y = y;
-					tmpP->next = NULL;
-				}
+				findPlace(places, capacity - 1, tmp->x + dx, tmp->y + dy)->neighbourCount++;
 			}
 		}
-
-		if (tmpCl->next == NULL)
-		{
-			break;
-		}
-		tmpCl = tmpCl->next;
-	}
-	return p;
-}
-
-positionOnScreen* getHaloPositions(unsigned int* count, positionOnScreen* places)
-{
-	positionOnScreen* p = NULL;
-	positionOnScreen* tmp = places;
-
-	if (places == NULL)
-	{
-		return NULL;
 	}
 
-	while (1)
+	for (i = 0; i < capacity; i++)
 	{
-		p = addToPositionListIfDoesntExist(p, tmp->x, tmp->y, count);
+		if (!places[i].used)
+			continue;
 
-		switch (tmp->x)
+		if (places[i].neighbourCount == 3 || (places[i].isALive && places[i].neighbourCount == 2))
 		{
+			tmp = createCell(places[i].x, places[i].y);
 
-		case 0:
-			switch (tmp->y)
+			if (tail == NULL)
 			{
-			case 0:
-				p = addToPositionListIfDoesntExist(p, tmp->x, tmp->y + 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x + 1, tmp->y + 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x + 1, tmp->y, count);
-				break;
-
-			case camSizeY - 1:
-				p = addToPositionListIfDoesntExist(p, tmp->x, tmp->y - 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x + 1, tmp->y - 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x + 1, tmp->y, count);
-				break;
-
-			default:
-				p = addToPositionListIfDoesntExist(p, tmp->x, tmp->y + 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x + 1, tmp->y + 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x + 1, tmp->y, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x, tmp->y - 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x + 1, tmp->y - 1, count);
-				break;
+				head = tmp;
 			}
-			break;
-
-		case camSizeX - 1:
-			switch (tmp->y)
+			else
 			{
-			case 0:
-				p = addToPositionListIfDoesntExist(p, tmp->x, tmp->y + 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x - 1, tmp->y + 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x - 1, tmp->y, count);
-				break;
-
-			case camSizeY - 1:
-				p = addToPositionListIfDoesntExist(p, tmp->x, tmp->y - 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x - 1, tmp->y - 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x - 1, tmp->y, count);
-				break;
-
-			default:
-				p = addToPositionListIfDoesntExist(p, tmp->x, tmp->y + 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x - 1, tmp->y + 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x - 1, tmp->y, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x, tmp->y - 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x - 1, tmp->y - 1, count);
-				break;
+				tail->next = tmp;
 			}
-			break;
-
-		default:
-
-			switch (tmp->y)
-			{
-			case 0:
-				p = addToPositionListIfDoesntExist(p, tmp->x - 1, tmp->y, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x - 1, tmp->y + 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x, tmp->y + 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x + 1, tmp->y + 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x + 1, tmp->y, count);
-				break;
-
-			case camSizeY - 1:
-				p = addToPositionListIfDoesntExist(p, tmp->x - 1, tmp->y, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x - 1, tmp->y - 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x, tmp->y - 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x + 1, tmp->y - 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x + 1, tmp->y, count);
-				break;
-
-			default:
-				p = addToPositionListIfDoesntExist(p, tmp->x - 1, tmp->y, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x - 1, tmp->y + 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x, tmp->y + 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x + 1, tmp->y + 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x + 1, tmp->y, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x - 1, tmp->y - 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x, tmp->y - 1, count);
-				p = addToPositionListIfDoesntExist(p, tmp->x + 1, tmp->y - 1, count);
-				break;
-			}
-			break;
+			tail = tmp;
 		}
-
-		if (tmp->next == NULL)
-		{
-			break;
-		}
-		tmp = tmp->next;
 	}
-	return p;
+	free(places);
+	return head;
 }
 
 cell* parseFile(const char* filePath)
@@ -410,6 +222,12 @@ cell* parseFile(const char* filePath)
 			continue; // Skip empty or malformed lines
 		}
 
+		//Ignore duplicates so every cell is in the list once
+		if (isCellAlive(c, x, y))
+		{
+			continue;
+		}
+
 		if (c == NULL)
 		{
 			c = createCell(x, y);
@@ -422,185 +240,4 @@ cell* parseFile(const char* filePath)
 	}
 	fclose(file);
 	return c;
-}
-
-cell* gameTick(cell* c)
-{
-	cell* tmp = c;
-	place* plc;
-
-	if (c == NULL)
-	{
-		return NULL;
-	}
-	plc = createPlace(c->x, c->y, true);
-
-	while (1)
-	{
-		switch (tmp->x)
-		{
-		case LONGLONG_MIN:
-		{
-			switch (tmp->y)
-			{
-			case LONGLONG_MIN:
-				addPlaceToPlaceList(tmp->x, tmp->y + 1, plc);
-				addPlaceToPlaceList(tmp->x + 1, tmp->y + 1, plc);
-				addPlaceToPlaceList(tmp->x + 1, tmp->y, plc);
-				break;
-
-			case LONGLONG_MAX:
-				addPlaceToPlaceList(tmp->x, tmp->y - 1, plc);
-				addPlaceToPlaceList(tmp->x + 1, tmp->y - 1, plc);
-				addPlaceToPlaceList(tmp->x + 1, tmp->y, plc);
-				break;
-
-			default:
-				addPlaceToPlaceList(tmp->x, tmp->y + 1, plc);
-				addPlaceToPlaceList(tmp->x + 1, tmp->y + 1, plc);
-				addPlaceToPlaceList(tmp->x + 1, tmp->y, plc);
-				addPlaceToPlaceList(tmp->x + 1, tmp->y - 1, plc);
-				addPlaceToPlaceList(tmp->x, tmp->y - 1, plc);
-				break;
-			}
-			break;
-		}
-
-		case LONGLONG_MAX:
-		{
-			switch (tmp->y)
-			{
-			case LONGLONG_MIN:
-				addPlaceToPlaceList(tmp->x, tmp->y + 1, plc);
-				addPlaceToPlaceList(tmp->x - 1, tmp->y + 1, plc);
-				addPlaceToPlaceList(tmp->x - 1, tmp->y, plc);
-				break;
-
-			case LONGLONG_MAX:
-				addPlaceToPlaceList(tmp->x, tmp->y - 1, plc);
-				addPlaceToPlaceList(tmp->x - 1, tmp->y - 1, plc);
-				addPlaceToPlaceList(tmp->x - 1, tmp->y, plc);
-				break;
-
-			default:
-				addPlaceToPlaceList(tmp->x, tmp->y + 1, plc);
-				addPlaceToPlaceList(tmp->x - 1, tmp->y + 1, plc);
-				addPlaceToPlaceList(tmp->x - 1, tmp->y, plc);
-				addPlaceToPlaceList(tmp->x - 1, tmp->y - 1, plc);
-				addPlaceToPlaceList(tmp->x, tmp->y - 1, plc);
-				break;
-			}
-			break;
-		}
-
-		default:
-		{
-			switch (tmp->y)
-			{
-			case LONGLONG_MIN:
-				addPlaceToPlaceList(tmp->x - 1, tmp->y, plc);
-				addPlaceToPlaceList(tmp->x - 1, tmp->y + 1, plc);
-				addPlaceToPlaceList(tmp->x, tmp->y + 1, plc);
-				addPlaceToPlaceList(tmp->x + 1, tmp->y + 1, plc);
-				addPlaceToPlaceList(tmp->x + 1, tmp->y, plc);
-				break;
-
-			case LONGLONG_MAX:
-				addPlaceToPlaceList(tmp->x - 1, tmp->y, plc);
-				addPlaceToPlaceList(tmp->x - 1, tmp->y - 1, plc);
-				addPlaceToPlaceList(tmp->x, tmp->y - 1, plc);
-				addPlaceToPlaceList(tmp->x + 1, tmp->y - 1, plc);
-				addPlaceToPlaceList(tmp->x + 1, tmp->y, plc);
-				break;
-
-			default:
-				addPlaceToPlaceList(tmp->x - 1, tmp->y, plc);
-				addPlaceToPlaceList(tmp->x - 1, tmp->y + 1, plc);
-				addPlaceToPlaceList(tmp->x, tmp->y + 1, plc);
-				addPlaceToPlaceList(tmp->x + 1, tmp->y + 1, plc);
-
-				addPlaceToPlaceList(tmp->x + 1, tmp->y, plc);
-				addPlaceToPlaceList(tmp->x + 1, tmp->y - 1, plc);
-				addPlaceToPlaceList(tmp->x, tmp->y - 1, plc);
-				addPlaceToPlaceList(tmp->x - 1, tmp->y - 1, plc);
-				break;
-			}
-			break;
-		}
-		}
-
-		if (tmp->next == NULL)
-		{
-			break;
-		}
-		tmp = tmp->next;
-	}
-
-	tmp = c;
-
-	while (1)
-	{
-		addCellToPlaceList(tmp->x, tmp->y, plc);
-
-		if (tmp->next == NULL)
-		{
-			break;
-		}
-
-		tmp = tmp->next;
-	}
-	//deleteCell(c);
-
-	tmp = getCellsFromPlaceList(plc);
-	deletePlace(plc);
-	return tmp;
-}
-
-void drawToConsole(cell cl)
-{
-	char scr[camSizeX * camSizeY];
-	int i, j, x, y;
-#ifdef _WIN32
-	system("cls");
-#else
-	system("clear");
-#endif
-
-	for (i = 0; i < camSizeX * camSizeY; i++)
-	{
-		scr[i] = ' ';
-	}
-
-	while (1)
-	{
-		if (!cl.valid)
-		{
-			return;
-		}
-
-		if (camPosX < cl.x && (camPosX + camSizeX) > cl.x)
-		{
-			if (camPosY < cl.y && (camPosY + camSizeY) > cl.y)
-			{
-				x = cl.x - camPosX;
-				y = camSizeY - (cl.y - camPosY);
-				scr[y * camSizeX + x] = 'X';
-			}
-		}
-
-		if (cl.next == NULL)
-		{
-			break;
-		}
-		cl = *cl.next;
-	}
-
-	for (i = 0; i < camSizeY; i++)
-	{
-		for (j = 0; j < camSizeX; j++)
-		{
-			printf("%c", scr[i * camSizeX + j]);
-		}
-		printf("\n");
-	}
 }

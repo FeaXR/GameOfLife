@@ -3,17 +3,16 @@
 #include <limits.h>
 
 #define MAX_LINE_LENGTH  10000
-#define camSizeX 90
-#define camSizeY 45
 #define LONGLONG_MIN LLONG_MIN
 #define LONGLONG_MAX LLONG_MAX
 
 typedef struct cell cell;
-typedef struct place place;
-typedef struct positionOnScreen positionOnScreen;
 
+//Bottom left corner of the camera, and the number of visible cells (changes with zoom)
 extern long long camPosX;
 extern long long camPosY;
+extern int camSizeX;
+extern int camSizeY;
 
 struct cell
 {
@@ -23,33 +22,11 @@ struct cell
 	bool valid;
 };
 
-struct place
-{
-	long long x;
-	long long y;
-	unsigned int neighbourCount;
-	bool isALive;
-	place* next;
-};
-
-struct positionOnScreen
-{
-	unsigned int x;
-	unsigned int y;
-	positionOnScreen* next;
-};
-
 cell* createCell(long long x, long long y);
-place* createPlace(long long x, long long y, bool isALive);
-place* addPlaceToPlaceList(long long x, long long y, place* plc);
-place* addCellToPlaceList(long long x, long long y, place* plc);
-void deleteCell(cell* c);
-void deletePlace(place* p);
-void deletePositionOnScreen(positionOnScreen* p);
-cell* getCellsFromPlaceList(place* p);
-cell* gameTick(cell* c);
-void drawToConsole(cell cl);
+void deleteCell(cell* c); //Deletes the whole list
+cell* gameTick(cell* c); //Returns the next generation as a new list
 cell* parseFile(const char* filePath);
-positionOnScreen* getCellPositions(cell* cl);
-positionOnScreen* addToPositionListIfDoesntExist(positionOnScreen* places, int x, int y, unsigned int* count);
-positionOnScreen* getHaloPositions(unsigned int* count, positionOnScreen* places);
+
+bool isCellAlive(cell* c, long long x, long long y);
+cell* setCell(cell* c, long long x, long long y, bool alive); //Returns the new head of the list
+unsigned int countCells(cell* c);

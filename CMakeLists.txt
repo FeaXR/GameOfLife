@@ -62,6 +62,7 @@ add_executable(gol
   Source/src/gol.c
   Source/src/shader.c
   Source/src/ui.c
+  Source/src/patterns.c
 )
 target_include_directories(gol PRIVATE
   "${nuklear_SOURCE_DIR}"

@@ -29,6 +29,7 @@
 #include "ui.h"
 #include "controls.h"
 #include "gol.h"
+#include "patterns.h"
 
 #define MAX_VERTEX_BUFFER (512 * 1024)
 #define MAX_ELEMENT_BUFFER (128 * 1024)
@@ -60,6 +61,21 @@ void uiShutdown(void)
 void uiKeyCallback(struct GLFWwindow* window, int key, int scancode, int action, int mods)
 {
 	nk_glfw3_key_callback(window, key, scancode, action, mods);
+}
+
+void uiMouseButtonCallback(struct GLFWwindow* window, int button, int action, int mods)
+{
+	nk_glfw3_mouse_button_callback(window, button, action, mods);
+}
+
+void uiScrollCallback(struct GLFWwindow* window, double xoffset, double yoffset)
+{
+	nk_gflw3_scroll_callback(window, xoffset, yoffset);
+}
+
+bool uiWantsMouse(void)
+{
+	return nk_window_is_any_hovered(ctx) || nk_item_is_any_active(ctx);
 }
 
 //Show a tooltip if the mouse is over the given widget bounds
@@ -117,47 +133,94 @@ static void label(const char* text, float width)
 
 static void gap(void)
 {
-	nk_layout_row_push(ctx, 12);
+	nk_layout_row_push(ctx, 8);
 	nk_spacing(ctx, 1);
+}
+
+//Button that can be greyed out
+static int buttonIf(bool enabled, const char* label, const char* tip)
+{
+	int pressed;
+
+	if (!enabled)
+		nk_widget_disable_begin(ctx);
+	pressed = button(label, tip);
+	nk_widget_disable_end(ctx);
+	return pressed && enabled;
+}
+
+//Dropdown of the predefined patterns, grouped by category
+static void patternPicker(float width)
+{
+	struct nk_rect bounds;
+	const char* category = NULL;
+	char text[64];
+	int i;
+
+	nk_layout_row_push(ctx, width);
+	bounds = nk_widget_bounds(ctx);
+
+	if (nk_combo_begin_label(ctx, placingPattern >= 0 ? patterns[placingPattern].name : "Place a pattern...", nk_vec2(width + 60, 620)))
+	{
+		nk_layout_row_dynamic(ctx, 24, 1);
+
+		for (i = 0; i < patternCount; i++)
+		{
+			if (category == NULL || strcmp(category, patterns[i].category) != 0)
+			{
+				category = patterns[i].category;
+				nk_label_colored(ctx, category, NK_TEXT_LEFT, nk_rgb(140, 200, 140));
+			}
+
+			snprintf(text, sizeof(text), "   %s", patterns[i].name);
+			if (nk_combo_item_label(ctx, text, NK_TEXT_LEFT))
+			{
+				startPlacing(i);
+			}
+		}
+		nk_combo_end(ctx);
+	}
+	else
+	{
+		tooltip(bounds, "Pick a structure, then click on the grid to place it");
+	}
 }
 
 void uiFrame(void)
 {
 	char text[64];
 	int width, height;
+	bool placing = placingPattern >= 0;
 
 	nk_glfw3_new_frame(&glfw);
 	glfwGetWindowSize(glfw.win, &width, &height);
 
 	if (nk_begin(ctx, "Toolbar", nk_rect(0, 0, (float)width, TOOLBAR_HEIGHT), NK_WINDOW_NO_SCROLLBAR))
 	{
-		nk_layout_row_begin(ctx, NK_STATIC, BUTTON_HEIGHT, 32);
+		nk_layout_row_begin(ctx, NK_STATIC, BUTTON_HEIGHT, 48);
 
 		///Game speed
-		nk_layout_row_push(ctx, 80);
+		nk_layout_row_push(ctx, 70);
 		if (button(gameLoop ? "Pause" : "Play", "Pause / resume (Space, Esc)"))
 		{
 			togglePause();
 		}
 
-		nk_layout_row_push(ctx, 60);
-		if (gameLoop)
-			nk_widget_disable_begin(ctx);
-		if (button("Step", "Advance one generation while paused (Enter)"))
+		nk_layout_row_push(ctx, 56);
+		if (buttonIf(!gameLoop, "Step", "Advance one generation while paused (Enter)"))
 		{
 			stepGame();
 		}
-		nk_widget_disable_end(ctx);
 
 		gap();
-		nk_layout_row_push(ctx, 70);
+		nk_layout_row_push(ctx, 64);
 		if (button("Slower", "Slow down (Numpad -)"))
 		{
 			slowDown();
 		}
 		snprintf(text, sizeof(text), "%u ms", timePerTick);
-		label(text, 70);
-		nk_layout_row_push(ctx, 70);
+		label(text, 60);
+		nk_layout_row_push(ctx, 64);
 		if (button("Faster", "Speed up (Numpad +)"))
 		{
 			speedUp();
@@ -165,7 +228,6 @@ void uiFrame(void)
 
 		///Cam movement
 		gap();
-		label("Camera", 64);
 		nk_layout_row_push(ctx, BUTTON_HEIGHT);
 		cameraButton(NK_SYMBOL_TRIANGLE_LEFT, -1, 0, "Move left (Left arrow)");
 		nk_layout_row_push(ctx, BUTTON_HEIGHT);
@@ -175,24 +237,66 @@ void uiFrame(void)
 		nk_layout_row_push(ctx, BUTTON_HEIGHT);
 		cameraButton(NK_SYMBOL_TRIANGLE_RIGHT, 1, 0, "Move right (Right arrow)");
 		snprintf(text, sizeof(text), "%lld, %lld", camPosX + camSizeX / 2, camPosY + camSizeY / 2);
-		label(text, 130);
+		label(text, 110);
+
+		///Zoom
+		nk_layout_row_push(ctx, BUTTON_HEIGHT);
+		if (buttonIf(canZoomOut(), "-", "Zoom out (-, mouse wheel)"))
+		{
+			zoomOut();
+		}
+		snprintf(text, sizeof(text), "%d%%", zoomPercent());
+		label(text, 48);
+		nk_layout_row_push(ctx, BUTTON_HEIGHT);
+		if (buttonIf(canZoomIn(), "+", "Zoom in (=, mouse wheel)"))
+		{
+			zoomIn();
+		}
 
 		///Rendering
 		gap();
-		nk_layout_row_push(ctx, 80);
+		nk_layout_row_push(ctx, 66);
 		colorButton("R", &red, "Change red (R)");
-		nk_layout_row_push(ctx, 80);
+		nk_layout_row_push(ctx, 66);
 		colorButton("G", &green, "Change green (G)");
-		nk_layout_row_push(ctx, 80);
+		nk_layout_row_push(ctx, 66);
 		colorButton("B", &blue, "Change blue (B)");
 		nk_layout_row_push(ctx, BUTTON_HEIGHT);
 		nk_button_color(ctx, nk_rgb_f(red, green, blue));
 
-		gap();
-		nk_layout_row_push(ctx, 90);
+		nk_layout_row_push(ctx, 84);
 		if (button(showHalo ? "Halo: On" : "Halo: Off", "Toggle the halo effect (H)"))
 		{
 			toggleHalo();
+		}
+		nk_layout_row_push(ctx, 84);
+		if (button(showGrid ? "Grid: On" : "Grid: Off", "Toggle the grid lines (L)"))
+		{
+			toggleGrid();
+		}
+
+		///Editing
+		gap();
+		nk_layout_row_push(ctx, 56);
+		if (button("Clear", "Remove every cell. Click cells to flip them, drag to draw"))
+		{
+			clearBoard();
+		}
+		patternPicker(220);
+		nk_layout_row_push(ctx, 64);
+		if (buttonIf(placing, "Rotate", "Rotate the pattern clockwise (Q)"))
+		{
+			rotatePlacing();
+		}
+		nk_layout_row_push(ctx, 48);
+		if (buttonIf(placing, "Flip", "Mirror the pattern (F)"))
+		{
+			flipPlacing();
+		}
+		nk_layout_row_push(ctx, 60);
+		if (buttonIf(placing, "Done", "Stop placing (right click, Esc)"))
+		{
+			stopPlacing();
 		}
 
 		nk_layout_row_end(ctx);
