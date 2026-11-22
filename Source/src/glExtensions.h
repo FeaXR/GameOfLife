@@ -14,7 +14,7 @@ static bool GLLogCall(const char* function, const char* file, int line) // Print
 {
 	GLenum error;
 
-	while (error = glGetError())
+	while ((error = glGetError()) != GL_NO_ERROR)
 	{
 		printf("[OpenGL Error] (");
 		printf("%d): ", error);

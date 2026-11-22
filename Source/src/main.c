@@ -1,13 +1,28 @@
+#ifndef _CRT_SECURE_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
+#endif
+#ifndef _WIN32
+#define _DEFAULT_SOURCE //readlink, chdir
+#endif
 
+#if defined(_MSC_VER) && !defined(NDEBUG)
 #define _CRTDBG_MAP_ALLOC
 #include <crtdbg.h>
+#endif
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
 #include <stdlib.h>
-#include <time.h>
+#include <string.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <direct.h>
+#define chdir _chdir
+#else
+#include <unistd.h>
+#endif
 
 #include "shader.h"
 #include "macros.h"
@@ -26,8 +41,8 @@ const float haloHaloFactor = 0.1f;
 bool debug = false;
 bool gameLoop = true;
 bool showHalo = true;
-clock_t lastTick = 0;
-clock_t lastFrame = 0;
+double lastTick = 0.0; //Time of last game tick, in seconds (glfwGetTime)
+double lastFrame = 0.0; //Time of last frame, in seconds (glfwGetTime)
 cell* board;
 cell* tmpBoard;
 
@@ -43,8 +58,44 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 void drawToWindow(GLFWwindow* window, unsigned int* buffer, unsigned int vao, unsigned int ibo, unsigned int shader, int u_ColorLocation, int u_holeColorLocation, int i_sqrSizeLocation, int f_gapSizeLocation, int f_holeSizeLocation, float* positions);
 int main(int argc, char* argv[]);
 
+//If res/ is not in the working directory, switch to the executable's directory
+static void enterResourceDir(void)
+{
+	char path[4096];
+	char* slash;
+	FILE* f = fopen("res/shaders/basic.shader", "r");
+
+	if (f)
+	{
+		fclose(f);
+		return;
+	}
+
+#ifdef _WIN32
+	DWORD len = GetModuleFileNameA(NULL, path, sizeof(path));
+	if (len == 0 || len >= sizeof(path))
+		return;
+	slash = strrchr(path, '\\');
+#else
+	ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
+	if (len <= 0)
+		return;
+	path[len] = '\0';
+	slash = strrchr(path, '/');
+#endif
+
+	if (slash)
+	{
+		*slash = '\0';
+		if (chdir(path) != 0)
+			perror(path);
+	}
+}
+
 int initWindow(GLFWwindow** window)
 {
+	GLenum glewErr;
+
 	/* Initialize the library */
 	if (!glfwInit())
 		return -1;
@@ -52,9 +103,10 @@ int initWindow(GLFWwindow** window)
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
 	/* Create a windowed mode window and its OpenGL context */
-	*window = glfwCreateWindow(sqrSize * xCount, sqrSize * yCount, "Program", NULL, NULL);
+	*window = glfwCreateWindow(sqrSize * xCount, sqrSize * yCount, "Game of Life", NULL, NULL);
 
 	if (!(*window))
 	{
@@ -67,15 +119,25 @@ int initWindow(GLFWwindow** window)
 
 	glfwSwapInterval(1);
 
-	if (glewInit() != GLEW_OK)
+	glewExperimental = GL_TRUE; //Needed for core profile contexts
+	glewErr = glewInit();
+	glGetError(); //glewInit can leave a harmless GL_INVALID_ENUM behind
+
+#ifdef GLEW_ERROR_NO_GLX_DISPLAY
+	//A GLX-only GLEW reports this on Wayland (EGL context), but the GL functions are still loaded
+	if (glewErr == GLEW_ERROR_NO_GLX_DISPLAY)
 	{
-		printf("Error!");
+		glewErr = GLEW_OK;
+	}
+#endif
+
+	if (glewErr != GLEW_OK)
+	{
+		printf("Failed to initialize GLEW: %s\n", (const char*)glewGetErrorString(glewErr));
 		return -1;
 	}
 
-	printf("OpenGL version : ");
-	printf(glGetString(GL_VERSION));
-	printf("\n");
+	printf("OpenGL version : %s\n", (const char*)glGetString(GL_VERSION));
 	return 0;
 }
 
@@ -411,7 +473,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 			{
 				board = gameTick(board);
 				tmpBoard = board;
-				lastTick = clock();
+				lastTick = glfwGetTime();
 			}
 			break;
 		case GLFW_KEY_KP_SUBTRACT: //Slow down
@@ -446,8 +508,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
 	if (debug)
 	{
-		system("cls");
-		printf("%lld, %lld", (camPosX + camSizeX / 2), (camPosY + camSizeY / 2));
+		printf("%lld, %lld\n", (camPosX + camSizeX / 2), (camPosY + camSizeY / 2));
 	}
 }
 
@@ -463,9 +524,9 @@ void drawToWindow(GLFWwindow* window, unsigned int* buffer, unsigned int vao,
 	positionOnScreen* haloPos;
 	positionOnScreen* haloHaloPos;
 
-	int cellIndexCount = 0;
-	int haloIndexCount = 0;
-	int haloHaloIndexCount = 0;
+	unsigned int cellIndexCount = 0;
+	unsigned int haloIndexCount = 0;
+	unsigned int haloHaloIndexCount = 0;
 
 	// Clear screen
 	GLCall(glClear(GL_COLOR_BUFFER_BIT));
@@ -564,20 +625,24 @@ int main(int argc, char* argv[])
 	int u_holeSizeLocation; // u_gapSize location
 
 	float* vertexPositions; //vertex coordinates
-	long elapsedTime; //Time since last game tick
+	double elapsedTime; //Time since last game tick, in ms
 
-	switch (argc)
+	if (argc >= 3)
 	{
-	case 1:
-		board = parseFile("res/init/cells.init");
-		break;
-	case 3:
 		debug = (argv[2][0] == '0');
 		printf("%d\n", debug);
-	case 2:
+	}
+
+	//User supplied init files are relative to the original working directory
+	if (argc >= 2)
+	{
 		board = parseFile(argv[1]);
-	default:
-		break;
+	}
+	enterResourceDir();
+
+	if (argc < 2)
+	{
+		board = parseFile("res/init/cells.init");
 	}
 	tmpBoard = board;
 
@@ -606,6 +671,13 @@ int main(int argc, char* argv[])
 
 	//Getting the source code of the shader
 	shaderSource = ParseShader("res/shaders/basic.shader");
+
+	if (shaderSource.VertexSource[0] == '\0' || shaderSource.FragmentSource[0] == '\0')
+	{
+		printf("Could not load res/shaders/basic.shader\n");
+		glfwTerminate();
+		return -1;
+	}
 
 	//Compiling and running shader
 	shaderId = CreateShader(shaderSource.VertexSource, shaderSource.FragmentSource);
@@ -643,26 +715,26 @@ int main(int argc, char* argv[])
 	// Loop until the user closes the window
 	while (!glfwWindowShouldClose(window))
 	{
-		drawToWindow(window, &buffer, vao, ibo, shaderId, u_ColorLocation, u_holeColorLocation, u_sqrSizeLocation, u_gapSizeLocation, u_holeSizeLocation, vertexPositions);
-		elapsedTime = clock() - lastTick;
+		drawToWindow(window, &buffer, vao, ibo, shaderId, u_ColorLocation, u_holeColorLocation, u_sqrSizeLocation, u_gapSizeLocation, u_holeSizeLocation, NULL);
+		elapsedTime = (glfwGetTime() - lastTick) * 1000.0;
 
 		if (tmpBoard == board)
 		{
 			tmpBoard = gameTick(board);
 		}
 
-		if (gameLoop && (elapsedTime > timePerTick || elapsedTime < 0 /*Can be negative if the program runs long enough and the value wraps around*/))
-		{	
+		if (gameLoop && elapsedTime > timePerTick)
+		{
 			deleteCell(board);
 			board = tmpBoard;
-			lastTick = clock();
+			lastTick = glfwGetTime();
 		}
 
 		if (debug)
 		{
-			//printf("%d ms\n", clock() - lastFrame);
-			printf("%f fps, %d ms \n", 1000.0 / (clock() - lastFrame), (clock() - lastFrame));
-			lastFrame = clock();
+			double frameTime = glfwGetTime() - lastFrame;
+			printf("%f fps, %f ms \n", 1.0 / frameTime, frameTime * 1000.0);
+			lastFrame = glfwGetTime();
 		}
 	}
 
@@ -671,6 +743,8 @@ int main(int argc, char* argv[])
 	GLCall(glDeleteProgram(shaderId));
 
 	glfwTerminate();
+#if defined(_MSC_VER) && !defined(NDEBUG)
 	_CrtDumpMemoryLeaks();
+#endif
 	return 0;
 }

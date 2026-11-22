@@ -6,7 +6,7 @@ layout(location = 0) in vec4 position;
 void main()
 {
 	gl_Position = position;
-};
+}
 
 #shader fragment
 #version 330 core
@@ -19,12 +19,10 @@ uniform int u_sqrSize;
 uniform float u_gapSize;
 uniform float u_holeSize;
 
-in vec4 gl_FragCoord;
-
 void main()
 {
-	float gridX = mod(((float(gl_FragCoord.x)) / float(u_sqrSize)), 1);
-	float gridY = mod(((float(gl_FragCoord.y)) / float(u_sqrSize)), 1);
+	float gridX = mod(((float(gl_FragCoord.x)) / float(u_sqrSize)), 1.0);
+	float gridY = mod(((float(gl_FragCoord.y)) / float(u_sqrSize)), 1.0);
 
 	float holeX = gridX - 0.5;
 	float holeY = gridY - 0.5;
@@ -37,7 +35,7 @@ void main()
 		((1.0 - gridY) < (u_gapSize / u_sqrSize))
 		)
 	{
-		gl_FragColor = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+		color = vec4(0.0f, 0.0f, 0.0f, 1.0f);
 		return;
 	}
 	
@@ -49,9 +47,9 @@ void main()
 		((-holeY) < (u_holeSize / u_sqrSize))
 		)
 	{
-		//gl_FragColor = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-		gl_FragColor = u_holeColor;
+		//color = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+		color = u_holeColor;
 		return;
 	}
-	gl_FragColor = u_Color;
-};
+	color = u_Color;
+}

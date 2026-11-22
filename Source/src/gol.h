@@ -1,16 +1,19 @@
 #pragma once
+#include <stdbool.h>
+#include <limits.h>
+
 #define MAX_LINE_LENGTH  10000
 #define camSizeX 90
 #define camSizeY 45
-#define LONGLONG_MIN -9223372036854775807
-#define LONGLONG_MAX 9223372036854775807
+#define LONGLONG_MIN LLONG_MIN
+#define LONGLONG_MAX LLONG_MAX
 
 typedef struct cell cell;
 typedef struct place place;
 typedef struct positionOnScreen positionOnScreen;
 
-long long camPosX;
-long long camPosY;
+extern long long camPosX;
+extern long long camPosY;
 
 struct cell
 {

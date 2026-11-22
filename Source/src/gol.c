@@ -1,4 +1,6 @@
-﻿#define _CRT_SECURE_NO_WARNINGS
+#ifndef _CRT_SECURE_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -228,6 +230,11 @@ positionOnScreen* getCellPositions(cell* cl)
 	positionOnScreen* p = NULL;
 	positionOnScreen* tmpP = NULL;
 
+	if (cl == NULL)
+	{
+		return NULL;
+	}
+
 	while (1)
 	{
 		if (!tmpCl->valid)
@@ -384,10 +391,7 @@ cell* parseFile(const char* filePath)
 {
 	FILE* file = fopen(filePath, "r");
 	char line[MAX_LINE_LENGTH] = { 0 };
-	unsigned int line_count = 0;
-	int i;
 	long long x, y;
-	bool minus;
 
 	cell* c = NULL;
 	cell* tmp = NULL;
@@ -398,69 +402,38 @@ cell* parseFile(const char* filePath)
 		return NULL;
 	}
 
-	/* Get each line until there are none left */
+	/* Get each line until there are none left. Format: {x}; {y}\\Comment */
 	while (fgets(line, MAX_LINE_LENGTH, file))
 	{
-		x = y = i = 0;
-		minus = false;
-
-		if (line[i] == '-')
+		if (sscanf(line, " %lld ; %lld", &x, &y) != 2)
 		{
-			minus = true;
-			i++;
+			continue; // Skip empty or malformed lines
 		}
-
-		while (line[i] != ';')
-		{
-			x *= 10;
-			x += line[i] - '0';
-			i++;
-		}
-		x = minus ? -x : x;
-		i += 2;
-		minus = false;
-
-		if (line[i] == '-')
-		{
-			minus = true;
-			i++;
-		}
-
-		while (line[i] != '\n' && line[i] != '\0' && line[i] != '\\')
-		{
-			y *= 10;
-			y += line[i] - '0';
-			i++;
-		}
-		y = minus ? -y : y;
 
 		if (c == NULL)
 		{
-			c = (cell*)malloc(sizeof(cell));
-			c->valid = true;
-			c->x = x;
-			c->y = y;
-			c->next = NULL;
+			c = createCell(x, y);
 			tmp = c;
 			continue;
 		}
 
-		tmp->next = (cell*)malloc(sizeof(cell));
+		tmp->next = createCell(x, y);
 		tmp = tmp->next;
-		tmp->valid = true;
-		tmp->x = x;
-		tmp->y = y;
-		tmp->next = NULL;
 	}
+	fclose(file);
 	return c;
 }
 
 cell* gameTick(cell* c)
 {
 	cell* tmp = c;
-	place* plc = createPlace(c->x, c->y, true);
-	place* tmpPlc;
-	//tmp->next = c->next;
+	place* plc;
+
+	if (c == NULL)
+	{
+		return NULL;
+	}
+	plc = createPlace(c->x, c->y, true);
 
 	while (1)
 	{
@@ -565,8 +538,6 @@ cell* gameTick(cell* c)
 
 	tmp = c;
 
-	tmpPlc = plc;
-
 	while (1)
 	{
 		addCellToPlaceList(tmp->x, tmp->y, plc);
@@ -589,7 +560,11 @@ void drawToConsole(cell cl)
 {
 	char scr[camSizeX * camSizeY];
 	int i, j, x, y;
+#ifdef _WIN32
 	system("cls");
+#else
+	system("clear");
+#endif
 
 	for (i = 0; i < camSizeX * camSizeY; i++)
 	{

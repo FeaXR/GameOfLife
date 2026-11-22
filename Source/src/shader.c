@@ -1,8 +1,12 @@
+#ifndef _CRT_SECURE_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
+#endif
 #define MAX_LINE_LENGTH  10000
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "shader.h"
 
 ShaderProgramSource ParseShader(const char* filePath)
@@ -12,7 +16,6 @@ ShaderProgramSource ParseShader(const char* filePath)
 	FILE* file;
 
 	char line[MAX_LINE_LENGTH] = { 0 };
-	unsigned int line_count = 0;
 	char* new_str;
 	int tmp;
 	char* readBuffer[2];
@@ -36,6 +39,11 @@ ShaderProgramSource ParseShader(const char* filePath)
 	/* Get each line until there are none left */
 	while (fgets(line, MAX_LINE_LENGTH, file))
 	{
+		if (type == NONE && strstr(line, "#shader") == NULL)
+		{
+			continue;
+		}
+
 		if (strstr(line, "#shader") != NULL)
 		{
 			if (strstr(line, "vertex") != NULL)
@@ -73,8 +81,8 @@ ShaderProgramSource ParseShader(const char* filePath)
 	/* Close file */
 	if (fclose(file))
 	{
-		return src;
 		perror(filePath);
+		return src;
 	}
 	src.VertexSource = readBuffer[0];
 	src.FragmentSource = readBuffer[1];
@@ -105,7 +113,7 @@ unsigned int CompileShader(unsigned int type, const char* source)
 		printf("Failed to compile ");
 		printf((type == GL_VERTEX_SHADER) ? "vertex" : "fragment");
 		printf(" shader! \n");
-		printf(message == 0 ? " " : message);
+		printf("%s", message == 0 ? " " : message);
 		free(message);
 		glDeleteShader(id);
 		return 0;
