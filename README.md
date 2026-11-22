@@ -18,7 +18,7 @@ Ready-to-run builds are on the [releases page](https://github.com/FeaXR/GameOfLi
 - An effectively unlimited grid (64-bit coordinates) with a camera you can drag around and zoom
 - Click cells to flip them on or off, drag to draw
 - A library of predefined structures to place with the mouse: still lifes, oscillators, spaceships, glider guns, methuselahs and an infinitely growing pattern
-- A glowing halo around living cells, adjustable colors and an optional grid overlay
+- A glowing halo around living cells, adjustable colors (25% steps or exact values) and an optional grid overlay
 - A toolbar for everything, with keyboard shortcuts for the common actions (hover a button to see its shortcut)
 - Runs on Linux and Windows
 
@@ -31,7 +31,8 @@ Ready-to-run builds are on the [releases page](https://github.com/FeaXR/GameOfLi
 | Slow down / speed up | Slower / Faster | Numpad - / Numpad + |
 | Move the camera | Arrow buttons (hold to keep moving) | Arrow keys, drag with the middle mouse button |
 | Zoom out / in | - / + | - / =, mouse wheel (zooms around the cursor) |
-| Change the red, green or blue value | R / G / B | R / G / B |
+| Add 25% red, green or blue (after 100% it goes back to 0) | R +25% / G +25% / B +25% | R / G / B |
+| Set an exact red, green or blue value | Type 0-100 in the box next to the button, then Enter or click elsewhere | |
 | Toggle the halo effect | Halo | H |
 | Toggle the grid | Grid | L |
 | Flip a cell / draw cells | | Left click / drag on the grid |

@@ -585,10 +585,13 @@ void speedUp(void)
 		timePerTick -= 10;
 }
 
+//+25%, stopping at 100% before wrapping around to 0 (custom values can be off the 25% steps)
 void cycleColor(float* channel)
 {
-	*channel += 0.25f;
-	*channel = *channel > 1.0f ? 0 : *channel;
+	if (*channel >= 0.999f)
+		*channel = 0;
+	else
+		*channel = *channel + 0.25f > 1.0f ? 1.0f : *channel + 0.25f;
 }
 
 void toggleHalo(void)
@@ -689,7 +692,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 {
 	uiKeyCallback(window, key, scancode, action, mods);
 
-	if (!action) //Press or repeat only
+	if (!action || uiWantsKeyboard()) //Press or repeat only, and not while typing into the toolbar
 		return;
 
 	switch (key)

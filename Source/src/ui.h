@@ -13,6 +13,8 @@ void uiShutdown(void);
 
 //True if the mouse is over the toolbar or one of its popups, so clicks are not meant for the grid
 bool uiWantsMouse(void);
+//True while a text field of the toolbar is being typed into, so keys are not meant for the game
+bool uiWantsKeyboard(void);
 
 //Forward input events to the UI (it needs them for its own input handling)
 void uiKeyCallback(struct GLFWwindow* window, int key, int scancode, int action, int mods);

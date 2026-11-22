@@ -39,6 +39,7 @@
 static struct nk_glfw glfw;
 static struct nk_context* ctx;
 static double lastCameraMove;
+static bool typing; //A text field had keyboard focus in the last frame
 
 void uiInit(struct GLFWwindow* window)
 {
@@ -78,6 +79,11 @@ bool uiWantsMouse(void)
 	return nk_window_is_any_hovered(ctx) || nk_item_is_any_active(ctx);
 }
 
+bool uiWantsKeyboard(void)
+{
+	return typing;
+}
+
 //Show a tooltip if the mouse is over the given widget bounds
 static void tooltip(struct nk_rect bounds, const char* text)
 {
@@ -115,14 +121,64 @@ static void cameraButton(enum nk_symbol_type symbol, int dx, int dy, const char*
 	tooltip(bounds, tip);
 }
 
-static void colorButton(const char* name, float* channel, const char* tip)
+static int percent(float channel)
 {
-	char label[16];
-	snprintf(label, sizeof(label), "%s %d%%", name, (int)(*channel * 100.0f + 0.5f));
-	if (button(label, tip))
+	return (int)(channel * 100.0f + 0.5f);
+}
+
+//"+25%" button and a field to type an exact value (0-100%) into, applied on Enter or when clicking away
+static void colorControl(int index, const char* name, float* channel, const char* tip)
+{
+	static char text[3][8];
+	static int length[3];
+	static bool editing[3];
+	struct nk_rect bounds;
+	char caption[16];
+	nk_flags state;
+	int value;
+
+	snprintf(caption, sizeof(caption), "%s +25%%", name);
+	nk_layout_row_push(ctx, 66);
+	if (button(caption, tip))
 	{
 		cycleColor(channel);
 	}
+
+	//Show the current value unless it's being typed over
+	if (!editing[index])
+	{
+		length[index] = snprintf(text[index], sizeof(text[index]), "%d", percent(*channel));
+	}
+
+	nk_layout_row_push(ctx, 40);
+	bounds = nk_widget_bounds(ctx);
+	state = nk_edit_string(ctx, NK_EDIT_FIELD | NK_EDIT_SIG_ENTER | NK_EDIT_AUTO_SELECT, text[index], &length[index], 4, nk_filter_decimal);
+	tooltip(bounds, "Type a value from 0 to 100 and press Enter");
+
+	editing[index] = (state & NK_EDIT_ACTIVE) != 0;
+	if (editing[index])
+	{
+		typing = true;
+	}
+
+	if (state & (NK_EDIT_COMMITED | NK_EDIT_DEACTIVATED))
+	{
+		text[index][length[index]] = '\0';
+		if (length[index] > 0)
+		{
+			value = atoi(text[index]);
+			value = value < 0 ? 0 : value > 100 ? 100 : value;
+			*channel = value / 100.0f;
+		}
+		if (state & NK_EDIT_COMMITED)
+		{
+			nk_edit_unfocus(ctx); //Enter finishes typing
+			editing[index] = false;
+		}
+	}
+
+	nk_layout_row_push(ctx, 14);
+	nk_label(ctx, "%", NK_TEXT_LEFT);
 }
 
 static void label(const char* text, float width)
@@ -255,12 +311,10 @@ void uiFrame(void)
 
 		///Rendering
 		gap();
-		nk_layout_row_push(ctx, 66);
-		colorButton("R", &red, "Change red (R)");
-		nk_layout_row_push(ctx, 66);
-		colorButton("G", &green, "Change green (G)");
-		nk_layout_row_push(ctx, 66);
-		colorButton("B", &blue, "Change blue (B)");
+		typing = false;
+		colorControl(0, "R", &red, "Add 25% red (R)");
+		colorControl(1, "G", &green, "Add 25% green (G)");
+		colorControl(2, "B", &blue, "Add 25% blue (B)");
 		nk_layout_row_push(ctx, BUTTON_HEIGHT);
 		nk_button_color(ctx, nk_rgb_f(red, green, blue));
 
