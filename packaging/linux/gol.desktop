@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Game of Life
+Comment=Conway's Game of Life on an endless grid
+Exec=gol
+Icon=gol
+Categories=Game;Simulation;
+Terminal=false

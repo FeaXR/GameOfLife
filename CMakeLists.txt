@@ -12,6 +12,11 @@ endif()
 # If they can't be found, or GOL_FETCH_DEPS is ON, they are downloaded and built.
 option(GOL_FETCH_DEPS "Always download and build GLFW and GLEW" OFF)
 
+# Link the C runtime statically with MSVC, so gol.exe runs without the Visual C++ redistributable
+if(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 set(OpenGL_GL_PREFERENCE GLVND)
 find_package(OpenGL REQUIRED)
 

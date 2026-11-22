@@ -4,6 +4,13 @@ This project uses basic C libraries and OpenGL to simulate Conway's game of life
 
 ![A Gosper glider gun firing a stream of gliders, with a pulsar, Kok's galaxy, a pentadecathlon and a beacon](Screenshots/zoomed.png)
 
+## Download
+
+Ready-to-run builds are on the [releases page](https://github.com/FeaXR/GameOfLife/releases/latest):
+
+- **Linux**: download `Game_of_Life-x86_64.AppImage`, make it executable (`chmod +x Game_of_Life-x86_64.AppImage`, or tick "Allow executing" in its properties) and run it.
+- **Windows**: download `gol-windows-x86_64.zip`, extract it and run `gol.exe` from the `gol` folder.
+
 ## Features
 
 - An effectively unlimited grid (64-bit coordinates) with a camera you can drag around and zoom

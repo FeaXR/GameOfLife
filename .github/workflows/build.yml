@@ -2,6 +2,8 @@ name: Build
 
 on:
   push:
+    branches: ['**']
+    tags: ['v*']
   pull_request:
 
 jobs:
@@ -9,28 +11,72 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            package: Game_of_Life-x86_64.AppImage
+          - os: windows-latest
+            package: gol-windows-x86_64.zip
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write # To attach the packages to a release
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install dependencies (Linux)
+      # GLFW and GLEW are built from source and linked statically, so the packages run without installing anything.
+      # GLFW loads X11/Wayland at runtime, so the Linux build only needs the system's OpenGL and X11 libraries.
+      - name: Install build dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libglfw3-dev libglew-dev
+        run: >-
+          sudo apt-get update && sudo apt-get install -y libgl-dev libx11-dev libxrandr-dev libxinerama-dev
+          libxcursor-dev libxi-dev libxext-dev libwayland-dev libxkbcommon-dev wayland-protocols
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGOL_FETCH_DEPS=ON
 
       - name: Build
         run: cmake --build build --config Release
 
       - name: Package
-        run: cmake --install build --config Release --prefix dist --component gol
+        run: cmake --install build --config Release --prefix gol --component gol
 
-      # Uploading only fails when the account's artifact storage is full, which says nothing about the build
+      - name: Show runtime dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: ldd gol/gol
+
+      - name: Show runtime dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 0
+          dumpbin /dependents gol\gol.exe
+
+      - name: AppImage (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -sSLo appimagetool https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  appimagetool" | sha256sum -c
+          chmod +x appimagetool
+          APPIMAGE_EXTRACT_AND_RUN=1 packaging/linux/make-appimage.sh gol ./appimagetool
+
+      - name: Archive (Windows)
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path gol -DestinationPath ${{ matrix.package }}
+
+      # Tags starting with v (e.g. v1.0.0) publish the packages as a GitHub release
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes 2>/dev/null || true
+          gh release upload "$GITHUB_REF_NAME" ${{ matrix.package }} --clobber
+
+      # Other builds are kept for a week; uploading only fails when the account's artifact storage is full
       - uses: actions/upload-artifact@v7
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         continue-on-error: true
         with:
           name: gol-${{ runner.os }}
-          path: dist
+          path: gol
           retention-days: 7
