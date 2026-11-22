@@ -28,6 +28,8 @@
 #include "macros.h"
 #include "glExtensions.h"
 #include "gol.h"
+#include "controls.h"
+#include "ui.h"
 
 unsigned int timePerTick = 100;
 const unsigned int sqrSize = 21;
@@ -104,9 +106,10 @@ int initWindow(GLFWwindow** window)
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); //The grid has a fixed number of cells
 
 	/* Create a windowed mode window and its OpenGL context */
-	*window = glfwCreateWindow(sqrSize * xCount, sqrSize * yCount, "Game of Life", NULL, NULL);
+	*window = glfwCreateWindow(sqrSize * xCount, sqrSize * yCount + TOOLBAR_HEIGHT, "Game of Life", NULL, NULL);
 
 	if (!(*window))
 	{
@@ -437,78 +440,107 @@ unsigned int* generateHaloIndicesFromPositions(unsigned int* indexCount, positio
 	return indexes;
 }
 
-//Handle key presses
-void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+///Actions shared by the keyboard and the toolbar buttons
+
+void moveCamera(int dx, int dy)
 {
-	if (action)
-	{
-		switch (key)
-		{
-			///Cam movement
-		case GLFW_KEY_RIGHT: //Right
-			if (camPosX < (LONGLONG_MAX - scrollSpeed))
-				camPosX += scrollSpeed;
-			break;
-		case GLFW_KEY_LEFT: //Left
-			if ((camPosX + camSizeX) > (LONGLONG_MIN) +scrollSpeed)
-				camPosX -= scrollSpeed;
-			break;
-		case GLFW_KEY_DOWN: //Down
-			if (camPosY > (LONGLONG_MIN)+scrollSpeed)
-				camPosY -= scrollSpeed;
-
-			break;
-		case GLFW_KEY_UP: //Up
-			if ((camPosY + camSizeY) < (LONGLONG_MAX - scrollSpeed))
-				camPosY += scrollSpeed;
-			break;
-
-			///Game speed
-		case GLFW_KEY_ESCAPE: //Pause/Play
-		case GLFW_KEY_SPACE: 
-			gameLoop = !gameLoop;
-			break;
-		case GLFW_KEY_ENTER: //Single step if paused
-			if (!gameLoop)
-			{
-				board = gameTick(board);
-				tmpBoard = board;
-				lastTick = glfwGetTime();
-			}
-			break;
-		case GLFW_KEY_KP_SUBTRACT: //Slow down
-			if (timePerTick < 300)
-				timePerTick += 10;
-			break;
-		case GLFW_KEY_KP_ADD: //Speed up
-			if (timePerTick > 0)
-				timePerTick -= 10;
-			break;
-
-			///Rendering
-		case GLFW_KEY_R: //Red
-			red += 0.25f;
-			red = red > 1.0f ? 0 : red;
-			break;
-		case GLFW_KEY_G: //Green
-			green += 0.25f;
-			green = green > 1.0f ? 0 : green;
-			break;
-		case GLFW_KEY_B: //Blue
-			blue += 0.25f;
-			blue = blue > 1.0f ? 0 : blue;
-			break;
-		case GLFW_KEY_H: //Halo
-			showHalo = !showHalo;
-			break;
-		default:
-			break;
-		}
-	}
+	if (dx > 0 && camPosX < (LONGLONG_MAX - scrollSpeed))
+		camPosX += scrollSpeed;
+	if (dx < 0 && (camPosX + camSizeX) > (LONGLONG_MIN) + scrollSpeed)
+		camPosX -= scrollSpeed;
+	if (dy > 0 && (camPosY + camSizeY) < (LONGLONG_MAX - scrollSpeed))
+		camPosY += scrollSpeed;
+	if (dy < 0 && camPosY > (LONGLONG_MIN) + scrollSpeed)
+		camPosY -= scrollSpeed;
 
 	if (debug)
 	{
 		printf("%lld, %lld\n", (camPosX + camSizeX / 2), (camPosY + camSizeY / 2));
+	}
+}
+
+void togglePause(void)
+{
+	gameLoop = !gameLoop;
+}
+
+void stepGame(void)
+{
+	if (gameLoop)
+		return;
+
+	//Use the precomputed next generation if there is one
+	if (tmpBoard == board)
+	{
+		tmpBoard = gameTick(board);
+	}
+
+	if (tmpBoard != board)
+	{
+		deleteCell(board);
+		board = tmpBoard;
+	}
+	lastTick = glfwGetTime();
+}
+
+void slowDown(void)
+{
+	if (timePerTick < 300)
+		timePerTick += 10;
+}
+
+void speedUp(void)
+{
+	if (timePerTick > 0)
+		timePerTick -= 10;
+}
+
+void cycleColor(float* channel)
+{
+	*channel += 0.25f;
+	*channel = *channel > 1.0f ? 0 : *channel;
+}
+
+void toggleHalo(void)
+{
+	showHalo = !showHalo;
+}
+
+//Handle key presses
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+	uiKeyCallback(window, key, scancode, action, mods);
+
+	if (!action) //Press or repeat only
+		return;
+
+	switch (key)
+	{
+		///Cam movement
+	case GLFW_KEY_RIGHT: moveCamera(1, 0); break;
+	case GLFW_KEY_LEFT: moveCamera(-1, 0); break;
+	case GLFW_KEY_DOWN: moveCamera(0, -1); break;
+	case GLFW_KEY_UP: moveCamera(0, 1); break;
+
+		///Game speed
+	case GLFW_KEY_ESCAPE: //Pause/Play
+	case GLFW_KEY_SPACE:
+		togglePause();
+		break;
+	case GLFW_KEY_ENTER: //Single step if paused
+	case GLFW_KEY_KP_ENTER:
+		stepGame();
+		break;
+	case GLFW_KEY_KP_SUBTRACT: slowDown(); break;
+	case GLFW_KEY_KP_ADD: speedUp(); break;
+
+		///Rendering
+	case GLFW_KEY_R: cycleColor(&red); break;
+	case GLFW_KEY_G: cycleColor(&green); break;
+	case GLFW_KEY_B: cycleColor(&blue); break;
+	case GLFW_KEY_H: toggleHalo(); break;
+	default:
+		break;
 	}
 }
 
@@ -528,12 +560,27 @@ void drawToWindow(GLFWwindow* window, unsigned int* buffer, unsigned int vao,
 	unsigned int haloIndexCount = 0;
 	unsigned int haloHaloIndexCount = 0;
 
+	int winWidth, winHeight, fbWidth, fbHeight;
+	float scale; //Framebuffer pixels per window unit (HiDPI)
+
+	//Build the toolbar first, button presses can change the board
+	uiFrame();
+
+	glfwGetWindowSize(window, &winWidth, &winHeight);
+	glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
+	scale = winWidth > 0 ? (float)fbWidth / (float)winWidth : 1.0f;
+
 	// Clear screen
 	GLCall(glClear(GL_COLOR_BUFFER_BIT));
+
+	//The grid is drawn at the bottom of the window, below the toolbar
+	GLCall(glViewport(0, 0, fbWidth, (int)(sqrSize * yCount * scale + 0.5f)));
 
 	//Bind Everything
 	GLCall(glUseProgram(shader));
 	GLCall(glBindVertexArray(vao));
+	GLCall(glUniform1f(u_sqrSizeLocation, sqrSize * scale));
+	GLCall(glUniform1f(u_gapSizeLocation, gapSize * scale));
 
 	cellPos = getCellPositions(board);
 	cellIndices = generateIndicesFromPositions(&cellIndexCount, cellPos);
@@ -587,6 +634,9 @@ void drawToWindow(GLFWwindow* window, unsigned int* buffer, unsigned int vao,
 
 	//Draw the triangles
 	GLCall(glDrawElements(GL_TRIANGLES, cellIndexCount, GL_UNSIGNED_INT, NULL));
+
+	//Draw the toolbar on top
+	uiRender();
 
 	/* Swap front and back buffers */
 	GLCall(glfwSwapBuffers(window));
@@ -650,7 +700,8 @@ int main(int argc, char* argv[])
 	{
 		return -1;
 	}
-	glfwSetKeyCallback(window, key_callback);
+	uiInit(window);
+	glfwSetKeyCallback(window, key_callback); //Replaces the UI's key callback, which it forwards to
 
 	vertexPositions = generateVertexPositions();
 
@@ -702,7 +753,7 @@ int main(int argc, char* argv[])
 	ASSERT(u_holeSizeLocation != -1);
 
 	//Setting uniforms
-	GLCall(glUniform1i(u_sqrSizeLocation, sqrSize));
+	GLCall(glUniform1f(u_sqrSizeLocation, (float)sqrSize));
 	GLCall(glUniform1f(u_gapSizeLocation, gapSize));
 	GLCall(glUniform1f(u_holeSizeLocation, 0));
 
@@ -742,6 +793,7 @@ int main(int argc, char* argv[])
 	deleteCell(board);
 	GLCall(glDeleteProgram(shaderId));
 
+	uiShutdown();
 	glfwTerminate();
 #if defined(_MSC_VER) && !defined(NDEBUG)
 	_CrtDumpMemoryLeaks();

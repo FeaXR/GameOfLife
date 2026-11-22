@@ -51,11 +51,25 @@ if(NOT TARGET GLEW::GLEW)
   set(GOL_GLEW_FETCHED ON)
 endif()
 
+# Nuklear (single-header immediate mode GUI) for the toolbar
+FetchContent_Declare(nuklear
+  URL https://github.com/Immediate-Mode-UI/Nuklear/archive/refs/tags/v4.13.4.tar.gz
+  URL_HASH SHA256=1ce8e78346017518810e3307d85e0b8f701e5ee2f5c34ab9203d99f2ab73ff77)
+FetchContent_MakeAvailable(nuklear)
+
 add_executable(gol
   Source/src/main.c
   Source/src/gol.c
   Source/src/shader.c
+  Source/src/ui.c
 )
+target_include_directories(gol PRIVATE
+  "${nuklear_SOURCE_DIR}"
+  "${nuklear_SOURCE_DIR}/demo/glfw_opengl3")
+if(NOT MSVC)
+  # Third-party header implementation, don't drown our warnings in its own
+  set_source_files_properties(Source/src/ui.c PROPERTIES COMPILE_OPTIONS "-Wno-unused-function;-Wno-unused-parameter;-Wno-unused-but-set-variable")
+endif()
 
 if(GOL_GLEW_FETCHED)
   target_link_libraries(gol PRIVATE libglew_static)
@@ -64,6 +78,9 @@ else()
   target_link_libraries(gol PRIVATE GLEW::GLEW)
 endif()
 target_link_libraries(gol PRIVATE glfw OpenGL::GL)
+if(UNIX)
+  target_link_libraries(gol PRIVATE m)
+endif()
 
 if(MSVC)
   target_compile_options(gol PRIVATE /W3)

@@ -15,7 +15,7 @@ layout(location = 0) out vec4 color;
 
 uniform vec4 u_Color;
 uniform vec4 u_holeColor;
-uniform int u_sqrSize;
+uniform float u_sqrSize;
 uniform float u_gapSize;
 uniform float u_holeSize;
 

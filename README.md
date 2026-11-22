@@ -3,7 +3,7 @@
 
 This project uses basic C libraries and OpenGL to simulate Conway's game of life on a 18,446,744,073,709,551,615 * 18,446,744,073,709,551,615 grid.
 
-Basic controls:
+Every control is available both from the toolbar at the top of the window (hover a button to see its shortcut) and from the keyboard:
 
 - Cam movement:
 - - Up, Down, Left, Right
@@ -11,7 +11,7 @@ Basic controls:
 - - Numpad+: Speed up
 - - Numpad-: Speed down
 - - Space, escape: Stop
-- - Enter: Advance game if stopped
+- - Enter: Advance game one generation if stopped
 - Visualization:
 - - R, G, B - Change the Red, Green and Blue values
 - - H - Toggle the Halo effect
@@ -29,7 +29,7 @@ Don't leave empty lines in the file!<br>
 
 # Building
 
-The project uses CMake (3.16+) and needs GLFW and GLEW. If they aren't installed, CMake downloads and builds them automatically (or force that with `-DGOL_FETCH_DEPS=ON`).
+The project uses CMake (3.16+) and needs GLFW and GLEW; the toolbar uses [Nuklear](https://github.com/Immediate-Mode-UI/Nuklear), which CMake always downloads. If GLFW or GLEW aren't installed, CMake downloads and builds them automatically (or force that with `-DGOL_FETCH_DEPS=ON`).
 
 Linux (e.g. `sudo pacman -S cmake glfw glew` or `sudo apt install cmake libglfw3-dev libglew-dev`):
 
